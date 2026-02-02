@@ -1,0 +1,41 @@
+# Dependências
+node_modules/
+package-lock.json
+
+# Ambiente local
+.env
+.env.local
+.env.*.local
+
+# Configurações do Firebase (com chaves)
+firebase-config.js
+firebaseConfig.js
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs e editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build
+dist/
+build/
+.cache/
+
+# Testes
+coverage/
+
+# Temporários
+tmp/
+temp/
+*.tmp
