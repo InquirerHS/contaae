@@ -63,6 +63,12 @@ sqlite.pragma("journal_mode = WAL");
 // foreign keys so deletes cascade cleanly handled in app layer
 sqlite.pragma("foreign_keys = ON");
 
+// migração idempotente: papel de moderador (bancos criados antes da coluna)
+const userCols = sqlite.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+if (!userCols.some((c) => c.name === "is_moderator")) {
+  sqlite.exec("ALTER TABLE users ADD COLUMN is_moderator INTEGER NOT NULL DEFAULT 0");
+}
+
 export const db = drizzle(sqlite);
 
 function parseTagsLocal(tags: string): string[] {
@@ -86,6 +92,26 @@ function toPublicUser(u: User | undefined): PublicUser | undefined {
   if (!u) return undefined;
   const { password, email, birthDate, ...pub } = u;
   return pub;
+}
+
+// ---------- Ocultação por moderação ----------
+// Conteúdo com flag resolvida como "hidden" ou "removed" some das listagens
+// (histórias, tópicos, quests, comentários) ou tem o texto mascarado quando
+// faz parte de uma sequência narrativa (trechos, posts de quest/fórum).
+export const MODERATED_PLACEHOLDER = "[conteúdo removido pela moderação]";
+
+function moderatedIds(target: ModerationTarget): Set<number> {
+  const rows = db
+    .select()
+    .from(moderationFlags)
+    .where(
+      and(
+        eq(moderationFlags.targetType, target),
+        or(eq(moderationFlags.status, "hidden"), eq(moderationFlags.status, "removed"))
+      )
+    )
+    .all() as ModerationFlag[];
+  return new Set(rows.map((r) => r.targetId));
 }
 
 export interface NotificationWithActor extends Notification {
@@ -331,6 +357,8 @@ export class DatabaseStorage implements IStorage {
       : db.select().from(stories).orderBy(desc(stories.updatedAt)).all()
     ) as Story[];
 
+    const hiddenStories = moderatedIds("story");
+    rows = rows.filter((s) => !hiddenStories.has(s.id));
     if (opts?.authorId) rows = rows.filter((s) => s.authorId === opts.authorId);
     if (opts?.tag) {
       const t = opts.tag.toLowerCase();
@@ -356,6 +384,8 @@ export class DatabaseStorage implements IStorage {
       ? db.select().from(stories).where(eq(stories.category, category)).all()
       : db.select().from(stories).all()
     ) as Story[];
+    const hiddenStories = moderatedIds("story");
+    rows = rows.filter((s) => !hiddenStories.has(s.id));
     if (opts?.authorId) rows = rows.filter((s) => s.authorId === opts.authorId);
     if (opts?.tag) {
       const t = opts.tag.toLowerCase();
@@ -372,17 +402,18 @@ export class DatabaseStorage implements IStorage {
 
   async getStory(id: number, viewerId?: number): Promise<StoryWithRelations | undefined> {
     const row = db.select().from(stories).where(eq(stories.id, id)).get() as Story | undefined;
-    if (!row) return undefined;
+    if (!row || moderatedIds("story").has(row.id)) return undefined;
     return this.attachRelations([row], viewerId)[0];
   }
 
   async listStoriesByAuthor(userId: number): Promise<StoryWithRelations[]> {
-    const rows = db
+    const hiddenStories = moderatedIds("story");
+    const rows = (db
       .select()
       .from(stories)
       .where(eq(stories.authorId, userId))
       .orderBy(desc(stories.updatedAt))
-      .all() as Story[];
+      .all() as Story[]).filter((s) => !hiddenStories.has(s.id));
     return this.attachRelations(rows, userId);
   }
 
@@ -425,8 +456,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(storyParts.storyId, storyId))
       .orderBy(storyParts.order)
       .all() as StoryPart[];
+    const maskedParts = moderatedIds("part");
     return rows.map((p) => ({
       ...p,
+      content: maskedParts.has(p.id) ? MODERATED_PLACEHOLDER : p.content,
       author: toPublicUser(db.select().from(users).where(eq(users.id, p.authorId)).get())!,
     }));
   }
@@ -605,12 +638,13 @@ export class DatabaseStorage implements IStorage {
 
   // ---------- COMMENTS ----------
   async listComments(storyId: number): Promise<CommentWithAuthor[]> {
-    const rows = db
+    const hiddenComments = moderatedIds("comment");
+    const rows = (db
       .select()
       .from(comments)
       .where(eq(comments.storyId, storyId))
       .orderBy(desc(comments.createdAt))
-      .all() as Comment[];
+      .all() as Comment[]).filter((c) => !hiddenComments.has(c.id));
     return rows.map((c) => ({
       ...c,
       author: toPublicUser(db.select().from(users).where(eq(users.id, c.authorId)).get())!,
@@ -812,7 +846,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async listQuests(opts?: { status?: QuestStatus; search?: string; gmId?: number; limit?: number; offset?: number }): Promise<QuestWithRelations[]> {
-    let rows = db.select().from(quests).orderBy(desc(quests.updatedAt)).all() as Quest[];
+    const hiddenQuests = moderatedIds("quest");
+    let rows = (db.select().from(quests).orderBy(desc(quests.updatedAt)).all() as Quest[]).filter((q) => !hiddenQuests.has(q.id));
     if (opts?.status) rows = rows.filter((q) => q.status === opts.status);
     if (opts?.gmId) rows = rows.filter((q) => q.gmId === opts.gmId);
     if (opts?.search) {
@@ -838,7 +873,7 @@ export class DatabaseStorage implements IStorage {
 
   async getQuest(id: number, viewerId?: number): Promise<QuestWithRelations | undefined> {
     const row = db.select().from(quests).where(eq(quests.id, id)).get() as Quest | undefined;
-    if (!row) return undefined;
+    if (!row || moderatedIds("quest").has(row.id)) return undefined;
     return this.attachQuestRelations([row], viewerId)[0];
   }
 
@@ -914,12 +949,13 @@ export class DatabaseStorage implements IStorage {
       if (p.status !== "pending") return true;
       return isGm || p.authorId === viewerId;
     });
+    const maskedQuestPosts = moderatedIds("quest_post");
     return rows.map((p) => {
       const author = toPublicUser(db.select().from(users).where(eq(users.id, p.authorId)).get())!;
       const character = p.characterId ? (db.select().from(characters).where(eq(characters.id, p.characterId)).get() as Character) : null;
       const args = db.select().from(questArguments).where(eq(questArguments.postId, p.id)).orderBy(questArguments.createdAt).all() as QuestArgument[];
       const argumentsWithAuthor = args.map((a) => ({ ...a, author: toPublicUser(db.select().from(users).where(eq(users.id, a.authorId)).get())! }));
-      return { ...p, author, character, arguments: argumentsWithAuthor };
+      return { ...p, content: maskedQuestPosts.has(p.id) ? MODERATED_PLACEHOLDER : p.content, author, character, arguments: argumentsWithAuthor };
     });
   }
 
@@ -1028,7 +1064,9 @@ export class DatabaseStorage implements IStorage {
     if (opts?.search) {
       q = q.where(like(forumTopics.title, `%${opts.search}%`));
     }
-    const rows = q.orderBy(desc(forumTopics.updatedAt)).limit(limit).offset(offset).all() as ForumTopic[];
+    const hiddenTopics = moderatedIds("forum_topic");
+    const rows = (q.orderBy(desc(forumTopics.updatedAt)).limit(limit).offset(offset).all() as ForumTopic[])
+      .filter((t) => !hiddenTopics.has(t.id));
     return rows.map((t) => ({ ...t, author: toPublicUser(db.select().from(users).where(eq(users.id, t.authorId)).get())! }));
   }
 
@@ -1041,7 +1079,7 @@ export class DatabaseStorage implements IStorage {
 
   async getForumTopic(id: number): Promise<ForumTopicWithRelations | undefined> {
     const t = db.select().from(forumTopics).where(eq(forumTopics.id, id)).get() as ForumTopic | undefined;
-    if (!t) return undefined;
+    if (!t || moderatedIds("forum_topic").has(t.id)) return undefined;
     return { ...t, author: toPublicUser(db.select().from(users).where(eq(users.id, t.authorId)).get())! };
   }
 
@@ -1064,7 +1102,13 @@ export class DatabaseStorage implements IStorage {
   // ---------- BOSQUE: FORUM POSTS (threaded) ----------
   async listForumPosts(topicId: number): Promise<ForumPostWithAuthor[]> {
     const rows = db.select().from(forumPosts).where(eq(forumPosts.topicId, topicId)).orderBy(forumPosts.createdAt).all() as ForumPost[];
-    const withAuthor = rows.map((p) => ({ ...p, author: toPublicUser(db.select().from(users).where(eq(users.id, p.authorId)).get())!, children: [] as ForumPostWithAuthor[] }));
+    const maskedPosts = moderatedIds("forum_post");
+    const withAuthor = rows.map((p) => ({
+      ...p,
+      content: maskedPosts.has(p.id) ? MODERATED_PLACEHOLDER : p.content,
+      author: toPublicUser(db.select().from(users).where(eq(users.id, p.authorId)).get())!,
+      children: [] as ForumPostWithAuthor[],
+    }));
     // build a tree via parentId
     const byId = new Map<number, ForumPostWithAuthor>();
     withAuthor.forEach((p) => byId.set(p.id, p));

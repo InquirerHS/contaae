@@ -81,7 +81,7 @@ export function Nav() {
         <div className="flex items-center gap-1.5">
           <ThemeToggle />
 
-          {user && (
+          {user?.isModerator && (
             <Link
               href="/moderacao"
               className="hidden h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:inline-flex"
@@ -206,14 +206,16 @@ export function Nav() {
                     </span>
                   )}
                 </Link>
-                <Link
-                  href="/moderacao"
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted/60"
-                >
-                  <Shield className="h-4 w-4" />
-                  Moderação
-                </Link>
+                {user?.isModerator && (
+                  <Link
+                    href="/moderacao"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted/60"
+                  >
+                    <Shield className="h-4 w-4" />
+                    Moderação
+                  </Link>
+                )}
                 <Link
                   href="/perfil"
                   onClick={() => setMobileOpen(false)}

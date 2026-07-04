@@ -12,6 +12,7 @@ export const users = sqliteTable("users", {
   bio: text("bio").default(""),
   avatarHue: integer("avatar_hue").default(200),
   avatarUrl: text("avatar_url"), // optional uploaded image URL
+  isModerator: integer("is_moderator", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 

@@ -9,6 +9,7 @@ export interface SafeUser {
   bio: string | null;
   avatarHue: number | null;
   avatarUrl: string | null;
+  isModerator?: boolean;
   createdAt: string;
 }
 

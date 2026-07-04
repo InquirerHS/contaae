@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shield, Flag, Bot, EyeOff, Trash2, Check } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { Avatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,19 @@ type Tab = "reports" | "ai";
 
 export default function Moderation() {
   const [tab, setTab] = useState<Tab>("reports");
+  const { user, loading } = useAuth();
+
+  if (!loading && !user?.isModerator) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16 text-center sm:px-6">
+        <Shield className="mx-auto h-8 w-8 text-muted-foreground" />
+        <h1 className="mt-3 font-display text-xl font-bold">Área restrita</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Esta página é exclusiva da equipe de moderação.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">

@@ -79,6 +79,19 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+async function requireModerator(req: Request, res: Response, next: NextFunction) {
+  const userId = getUserIdFromReq(req);
+  if (!userId) {
+    return res.status(401).json({ message: "Autenticação necessária" });
+  }
+  const user = await storage.getUser(userId);
+  if (!user?.isModerator) {
+    return res.status(403).json({ message: "Acesso restrito à equipe de moderação" });
+  }
+  (req as any).userId = userId;
+  next();
+}
+
 // ---------- IA DE MODERAÇÃO (pós-publicação, não bloqueante) ----------
 // Roda em background após criar conteúdo; nunca impede a publicação.
 function runModeration(target: ModerationTarget, targetId: number, content: string) {
@@ -397,9 +410,8 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports", requireAuth, async (req, res, next) => {
+  app.get("/api/reports", requireModerator, async (req, res, next) => {
     try {
-      // simple "moderation" panel: any logged-in user can view reports
       const list = await storage.listReports();
       res.json(list);
     } catch (e) {
@@ -407,7 +419,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/reports/:id", requireAuth, async (req, res, next) => {
+  app.patch("/api/reports/:id", requireModerator, async (req, res, next) => {
     try {
       const id = parseInt(req.params.id, 10);
       const { status } = z.object({ status: z.enum(["open", "reviewing", "resolved", "dismissed"]) }).parse(req.body);
@@ -795,7 +807,7 @@ export async function registerRoutes(
   });
 
   // ============================ MODERAÇÃO (sinalizações da IA) ============================
-  app.get("/api/moderation/flags", requireAuth, async (req, res, next) => {
+  app.get("/api/moderation/flags", requireModerator, async (req, res, next) => {
     try {
       const status = req.query.status as string | undefined;
       const valid = status && (moderationFlagStatuses as readonly string[]).includes(status) ? (status as ModerationFlagStatus) : undefined;
@@ -806,7 +818,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/moderation/flags/:id", requireAuth, async (req, res, next) => {
+  app.patch("/api/moderation/flags/:id", requireModerator, async (req, res, next) => {
     try {
       const id = parseInt(req.params.id, 10);
       const { status, note } = z.object({

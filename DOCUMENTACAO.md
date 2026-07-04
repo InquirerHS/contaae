@@ -137,7 +137,9 @@ Todo o modelo vive em `shared/schema.ts`. Cada tabela tem um `createInsertSchema
 - **Fallback heurístico:** se a IA estiver indisponível, uma classificação conservadora por palavras-chave mantém proteção mínima.
 - **Sinalizações viram flags** apenas para `borderline`/`violation`; o conteúdo NUNCA é removido automaticamente.
 - **Resolução humana** na página `/moderacao` → aba "Sinalizações da IA": Manter / Ocultar / Remover.
-- **Denúncia manual** permanece como complemento (botão em tópicos e respostas).
+- **Ocultar/Remover tem efeito real**: histórias, tópicos, quests e comentários com flag `hidden`/`removed` somem das listagens e detalhes (404); trechos de história, posts de quest e respostas do fórum têm o texto substituído por "[conteúdo removido pela moderação]" para não quebrar a sequência narrativa. (Implementado em `storage.ts` via `moderatedIds`.)
+- **Papel de moderador**: o painel `/moderacao` (denúncias + flags) exige `users.is_moderator`. Promova alguém com `node script/moderador.mjs <username>` (e rebaixe com `--remover`). A coluna é criada automaticamente no boot em bancos antigos.
+- **Denúncia manual** permanece como complemento (botão em tópicos e respostas) — qualquer pessoa logada pode denunciar; só moderadores veem e resolvem.
 
 ---
 
