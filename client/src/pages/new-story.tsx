@@ -199,9 +199,9 @@ export default function NewStory() {
             data-testid="checkbox-mature"
           />
           <span className="text-sm">
-            <span className="font-medium">Conteúdo +18</span>
+            <span className="font-medium">Conteúdo sensível</span>
             <span className="block text-muted-foreground">
-              Marque se a história contiver temas sensíveis, violência explícita ou conteúdo adulto.
+              Marque se a história abordar temas sensíveis, violência explícita ou conteúdo que exija cautela do leitor.
             </span>
           </span>
         </label>

@@ -11,6 +11,7 @@ export const users = sqliteTable("users", {
   birthDate: text("birth_date").notNull(), // ISO yyyy-mm-dd
   bio: text("bio").default(""),
   avatarHue: integer("avatar_hue").default(200),
+  avatarUrl: text("avatar_url"), // optional uploaded image URL
   createdAt: text("created_at").notNull().default(new Date().toISOString()),
 });
 
@@ -25,7 +26,7 @@ export const insertUserSchema = createInsertSchema(users)
       if (isNaN(birth.getTime())) return false;
       const age = (Date.now() - birth.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
       return age >= 18;
-    }, "Você precisa ter 18 anos ou mais para participar"),
+    }, "Não aceitamos cadastro de menores de idade em razão da legislação vigente"),
   });
 
 export const loginUserSchema = z.object({
@@ -39,6 +40,21 @@ export type User = typeof users.$inferSelect;
 
 // Safe user (no password) returned to the client
 export type SafeUser = Omit<User, "password">;
+
+// ---------- NOTIFICATIONS ----------
+export const notifications = sqliteTable("notifications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id), // recipient
+  actorId: integer("actor_id").references(() => users.id), // who triggered (nullable for system)
+  type: text("type").notNull(), // 'like' | 'comment' | 'part' | 'report'
+  storyId: integer("story_id"),
+  partId: integer("part_id"),
+  message: text("message").notNull(),
+  read: integer("read", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+});
+
+export type Notification = typeof notifications.$inferSelect;
 
 // ---------- STORIES ----------
 export const storyCategories = ["real", "creepy", "roleplay"] as const;
@@ -118,3 +134,30 @@ export const insertCommentSchema = createInsertSchema(comments)
 
 export type InsertComment = z.infer<typeof insertCommentSchema>;
 export type Comment = typeof comments.$inferSelect;
+
+// ---------- REPORTS ----------
+export const reportTargets = ["story", "part", "comment"] as const;
+export type ReportTarget = (typeof reportTargets)[number];
+export const reportStatuses = ["open", "reviewing", "resolved", "dismissed"] as const;
+export type ReportStatus = (typeof reportStatuses)[number];
+
+export const reports = sqliteTable("reports", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reporterId: integer("reporter_id").notNull().references(() => users.id),
+  targetType: text("target_type", { enum: reportTargets }).notNull(),
+  targetId: integer("target_id").notNull(),
+  reason: text("reason").notNull(),
+  status: text("status", { enum: reportStatuses }).notNull().default("open"),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+});
+
+export const insertReportSchema = createInsertSchema(reports)
+  .pick({ targetType: true, targetId: true, reason: true })
+  .extend({
+    targetType: z.enum(reportTargets),
+    targetId: z.number().int().positive(),
+    reason: z.string().min(3, "Descreva o motivo").max(500),
+  });
+
+export type InsertReport = z.infer<typeof insertReportSchema>;
+export type Report = typeof reports.$inferSelect;

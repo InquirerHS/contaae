@@ -14,6 +14,9 @@ import Library from "@/pages/library";
 import StoryDetail from "@/pages/story-detail";
 import NewStory from "@/pages/new-story";
 import Profile from "@/pages/profile";
+import PublicProfile from "@/pages/public-profile";
+import Notifications from "@/pages/notifications";
+import Moderation from "@/pages/moderation";
 
 function AppRouter() {
   return (
@@ -24,6 +27,9 @@ function AppRouter() {
       <Route path="/historia/:id" component={StoryDetail} />
       <Route path="/nova-historia" component={NewStory} />
       <Route path="/perfil" component={Profile} />
+      <Route path="/u/:username" component={PublicProfile} />
+      <Route path="/notificacoes" component={Notifications} />
+      <Route path="/moderacao" component={Moderation} />
       <Route component={NotFound} />
     </Switch>
   );

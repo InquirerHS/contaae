@@ -4,7 +4,7 @@ export function Logo({ className = "h-8 w-8" }: { className?: string }) {
       className={className}
       viewBox="0 0 64 64"
       fill="none"
-      aria-label="NeoArcana"
+      aria-label="ContaAê"
       role="img"
     >
       <defs>

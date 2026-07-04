@@ -10,12 +10,12 @@ export function Footer() {
           <Link href="/" className="flex items-center gap-2">
             <Logo className="h-7 w-7" />
             <span className="font-display text-base font-bold">
-              Neo<span className="text-primary">Arcana</span>
+              Conta<span className="text-primary">Aê</span>
             </span>
           </Link>
           <p className="mt-3 max-w-xs text-sm text-muted-foreground">
             Uma cidade futurista onde o tecnológico e o mágico convivem — e onde toda história
-            encontra seu narrador.
+            encontra quem queira contá-la.
           </p>
         </div>
 
@@ -57,7 +57,7 @@ export function Footer() {
         </div>
       </div>
       <div className="border-t border-border/60 py-5 text-center text-xs text-foreground/60">
-        © {new Date().getFullYear()} NeoArcana — espaço para maiores de 18 anos. Conte histórias com responsabilidade.
+        © {new Date().getFullYear()} ContaAê — não aceitamos cadastro de menores de idade em razão da legislação vigente.
       </div>
     </footer>
   );

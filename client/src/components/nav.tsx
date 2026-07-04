@@ -1,11 +1,13 @@
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
-import { Plus, Library, Home, LogOut, User as UserIcon, Menu, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Plus, Library, Home, LogOut, User as UserIcon, Menu, X, Bell, Shield } from "lucide-react";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { Avatar } from "./avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
@@ -18,6 +20,17 @@ export function Nav() {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const { data: unread } = useQuery<{ count: number }>({
+    queryKey: ["/api/notifications/unread"],
+    enabled: !!user,
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/notifications/unread");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+  const unreadCount = unread?.count ?? 0;
+
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
@@ -28,7 +41,7 @@ export function Nav() {
         >
           <Logo className="h-8 w-8 animate-float-slow" />
           <span className="font-display text-lg font-bold tracking-tight">
-            Neo<span className="text-primary text-glow-cyan">Arcana</span>
+            Conta<span className="text-primary text-glow-cyan">Aê</span>
           </span>
         </Link>
 
@@ -65,6 +78,37 @@ export function Nav() {
 
         <div className="flex items-center gap-1.5">
           <ThemeToggle />
+
+          {user && (
+            <Link
+              href="/moderacao"
+              className="hidden h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground md:inline-flex"
+              aria-label="Moderação"
+              data-testid="link-moderation"
+            >
+              <Shield className="h-4 w-4" />
+            </Link>
+          )}
+
+          {user && (
+            <Link
+              href="/notificacoes"
+              className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              aria-label="Notificações"
+              data-testid="link-notifications"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadCount > 0 && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground"
+                  data-testid="badge-unread"
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </Link>
+          )}
+
           {user ? (
             <div className="hidden items-center gap-2 sm:flex">
               <Link
@@ -138,6 +182,27 @@ export function Nav() {
                 >
                   <Plus className="h-4 w-4" />
                   Nova história
+                </Link>
+                <Link
+                  href="/notificacoes"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted/60"
+                >
+                  <Bell className="h-4 w-4" />
+                  Notificações
+                  {unreadCount > 0 && (
+                    <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </Link>
+                <Link
+                  href="/moderacao"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted/60"
+                >
+                  <Shield className="h-4 w-4" />
+                  Moderação
                 </Link>
                 <Link
                   href="/perfil"

@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import express from "express";
 import type { Server } from "node:http";
 import { storage } from "./storage";
 import {
@@ -7,11 +8,16 @@ import {
   insertStorySchema,
   insertStoryPartSchema,
   insertCommentSchema,
+  insertReportSchema,
   storyCategories,
+  reportTargets,
   type StoryCategory,
+  type ReportTarget,
 } from "@shared/schema";
 import { z } from "zod";
 import crypto from "node:crypto";
+import path from "node:path";
+import fs from "node:fs";
 
 // ---------- AUTH (token-based, in-memory) ----------
 const tokens = new Map<string, number>(); // token -> userId
@@ -99,10 +105,47 @@ export async function registerRoutes(
   app.patch("/api/auth/me", requireAuth, async (req, res, next) => {
     try {
       const patch = z
-        .object({ bio: z.string().max(300).optional(), avatarHue: z.number().min(0).max(360).optional() })
+        .object({
+          bio: z.string().max(300).optional(),
+          avatarHue: z.number().min(0).max(360).optional(),
+          avatarUrl: z.string().max(500).optional(),
+        })
         .parse(req.body);
       const updated = await storage.updateUser((req as any).userId, patch);
       res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // avatar upload (raw image body)
+  app.post("/api/auth/me/avatar", requireAuth, express.raw({ type: "*/*", limit: "5mb" }), async (req, res, next) => {
+    try {
+      const userId = (req as any).userId as number;
+      const contentType = req.headers["content-type"] || "";
+      const raw = req.body as Buffer | undefined;
+      if (!raw || !raw.length) return res.status(400).json({ message: "Arquivo vazio" });
+      const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+      const uploadsDir = path.resolve(process.cwd(), "client/public/uploads");
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      const filename = `${userId}-${crypto.randomBytes(6).toString("hex")}.${ext}`;
+      fs.writeFileSync(path.join(uploadsDir, filename), raw);
+      const url = `/uploads/${filename}`;
+      const updated = await storage.updateUser(userId, { avatarUrl: url });
+      res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // public profile by username
+  app.get("/api/users/:username", async (req, res, next) => {
+    try {
+      const u = await storage.getUserByUsername(req.params.username);
+      if (!u) return res.status(404).json({ message: "Usuário não encontrado" });
+      const { password, ...safe } = u;
+      const list = await storage.listStoriesByAuthor(u.id);
+      res.json({ user: safe, stories: list });
     } catch (e) {
       next(e);
     }
@@ -113,13 +156,23 @@ export async function registerRoutes(
     try {
       const category = req.query.category as string | undefined;
       const search = req.query.search as string | undefined;
+      const tag = req.query.tag as string | undefined;
+      const authorId = req.query.authorId ? Number(req.query.authorId) : undefined;
+      const page = Math.max(1, Number(req.query.page || 1));
       const validCategory =
         category && (storyCategories as readonly string[]).includes(category)
           ? (category as StoryCategory)
           : undefined;
       const viewerId = getUserIdFromReq(req);
-      const list = await storage.listStories(validCategory, search, viewerId);
-      res.json(list);
+      const limit = 12;
+      const list = await storage.listStories(validCategory, search, viewerId, {
+        tag,
+        authorId,
+        limit,
+        offset: (page - 1) * limit,
+      });
+      const total = await storage.countStories(validCategory, search, { tag, authorId });
+      res.json({ items: list, page, pages: Math.max(1, Math.ceil(total / limit)), total });
     } catch (e) {
       next(e);
     }
@@ -127,7 +180,7 @@ export async function registerRoutes(
 
   app.get("/api/stories/featured", async (_req, res, next) => {
     try {
-      const all = await storage.listStories(undefined, undefined, getUserIdFromReq(_req));
+      const all = await storage.listStories(undefined, undefined, getUserIdFromReq(_req), { limit: 100 });
       // pick up to 6 most liked
       const featured = [...all].sort((a, b) => b.likeCount - a.likeCount).slice(0, 6);
       res.json(featured);
@@ -240,6 +293,117 @@ export async function registerRoutes(
       const data = insertCommentSchema.parse({ ...req.body, storyId: id });
       const comment = await storage.addComment(id, (req as any).userId, data.content);
       res.status(201).json(comment);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // edit a part (only its author)
+  app.patch("/api/stories/:id/parts/:partId", requireAuth, async (req, res, next) => {
+    try {
+      const partId = parseInt(req.params.partId, 10);
+      const { content } = z.object({ content: z.string().min(20).max(6000) }).parse(req.body);
+      const updated = await storage.updatePart(partId, (req as any).userId, content);
+      if (!updated) return res.status(403).json({ message: "Você só pode editar seus próprios trechos" });
+      res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // delete a part (only its author)
+  app.delete("/api/stories/:id/parts/:partId", requireAuth, async (req, res, next) => {
+    try {
+      const partId = parseInt(req.params.partId, 10);
+      const ok = await storage.deletePart(partId, (req as any).userId);
+      if (!ok) return res.status(403).json({ message: "Você só pode remover seus próprios trechos" });
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // edit a comment (only its author)
+  app.patch("/api/stories/:id/comments/:commentId", requireAuth, async (req, res, next) => {
+    try {
+      const commentId = parseInt(req.params.commentId, 10);
+      const { content } = z.object({ content: z.string().min(2).max(800) }).parse(req.body);
+      const updated = await storage.updateComment(commentId, (req as any).userId, content);
+      if (!updated) return res.status(403).json({ message: "Você só pode editar seus próprios comentários" });
+      res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // delete a comment (only its author)
+  app.delete("/api/stories/:id/comments/:commentId", requireAuth, async (req, res, next) => {
+    try {
+      const commentId = parseInt(req.params.commentId, 10);
+      const ok = await storage.deleteComment(commentId, (req as any).userId);
+      if (!ok) return res.status(403).json({ message: "Você só pode remover seus próprios comentários" });
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ---------- REPORTS ----------
+  app.post("/api/reports", requireAuth, async (req, res, next) => {
+    try {
+      const data = insertReportSchema.parse(req.body);
+      const report = await storage.createReport((req as any).userId, data.targetType, data.targetId, data.reason);
+      res.status(201).json(report);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/reports", requireAuth, async (req, res, next) => {
+    try {
+      // simple "moderation" panel: any logged-in user can view reports
+      const list = await storage.listReports();
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.patch("/api/reports/:id", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { status } = z.object({ status: z.enum(["open", "reviewing", "resolved", "dismissed"]) }).parse(req.body);
+      const updated = await storage.updateReportStatus(id, status);
+      if (!updated) return res.status(404).json({ message: "Denúncia não encontrada" });
+      res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ---------- NOTIFICATIONS ----------
+  app.get("/api/notifications", requireAuth, async (req, res, next) => {
+    try {
+      const list = await storage.listNotifications((req as any).userId);
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/notifications/unread", requireAuth, async (req, res, next) => {
+    try {
+      const count = await storage.unreadCount((req as any).userId);
+      res.json({ count });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/notifications/read-all", requireAuth, async (req, res, next) => {
+    try {
+      await storage.markAllRead((req as any).userId);
+      res.json({ ok: true });
     } catch (e) {
       next(e);
     }

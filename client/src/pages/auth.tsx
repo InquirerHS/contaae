@@ -45,7 +45,7 @@ export default function Auth() {
       const birth = new Date(form.birthDate);
       const age = (Date.now() - birth.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
       if (age < 18)
-        return setError("Você precisa ter 18 anos ou mais para participar da NeoArcana.");
+        return setError("Não aceitamos cadastro de menores de idade em razão da legislação vigente.");
     }
 
     setPending(true);
@@ -60,7 +60,7 @@ export default function Auth() {
           password: form.password,
           birthDate: form.birthDate,
         });
-        toast({ title: "Conta criada", description: "Bem-vindo à NeoArcana." });
+        toast({ title: "Conta criada", description: "Bem-vindo ao ContaAê." });
       }
       navigate("/");
     } catch (err: any) {
@@ -76,7 +76,7 @@ export default function Auth() {
       <div className="relative mx-auto flex max-w-md flex-col items-center px-4 py-12 sm:py-16">
         <Logo className="h-12 w-12 animate-float-slow" />
         <h1 className="mt-4 font-display text-2xl font-bold">
-          {mode === "register" ? "Crie sua conta" : "Entrar na NeoArcana"}
+          {mode === "register" ? "Crie sua conta" : "Entrar no ContaAê"}
         </h1>
         <p className="mt-1 text-center text-sm text-muted-foreground">
           {mode === "register"
@@ -174,7 +174,7 @@ export default function Auth() {
               </div>
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                A NeoArcana é um espaço para maiores de 18 anos.
+                Não aceitamos cadastro de menores de idade em razão da legislação vigente.
               </p>
             </div>
           )}

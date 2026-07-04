@@ -3,7 +3,7 @@ import type { SafeUser } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface AvatarProps {
-  user: Pick<SafeUser, "username" | "avatarHue">;
+  user: Pick<SafeUser, "username" | "avatarHue" | "avatarUrl">;
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 }
@@ -17,6 +17,20 @@ const sizes = {
 
 export function Avatar({ user, size = "md", className }: AvatarProps) {
   const hue = user.avatarHue ?? 200;
+  if (user.avatarUrl) {
+    return (
+      <img
+        src={user.avatarUrl}
+        alt={`Avatar de ${user.username}`}
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center rounded-full object-cover ring-2 ring-background/60",
+          sizes[size],
+          className
+        )}
+        data-testid={`img-avatar-${user.username}`}
+      />
+    );
+  }
   return (
     <span
       className={cn(

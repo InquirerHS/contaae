@@ -1,19 +1,18 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Pencil, Check, BookOpenText } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { CalendarDays, Pencil, Check, BookOpenText, Upload, ImageOff } from "lucide-react";
+import { apiRequest, getAuthToken } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/avatar";
 import { StoryCard } from "@/components/story-card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/format";
-import type { StoryWithRelations } from "@/lib/types";
+import type { StoryWithRelations, SafeUser } from "@/lib/types";
 
 const HUE_PRESETS = [190, 276, 41, 332, 152, 220, 12, 96];
 
@@ -21,6 +20,7 @@ export default function Profile() {
   const { user, refresh } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: stories, isLoading } = useQuery<StoryWithRelations[]>({
     queryKey: ["/api/stories/mine"],
@@ -30,6 +30,12 @@ export default function Profile() {
   const [editing, setEditing] = useState(false);
   const [bio, setBio] = useState(user?.bio ?? "");
   const [hue, setHue] = useState(user?.avatarHue ?? 200);
+
+  const avatarUser: Pick<SafeUser, "username" | "avatarHue" | "avatarUrl"> = {
+    username: user?.username ?? "",
+    avatarHue: hue,
+    avatarUrl: user?.avatarUrl ?? null,
+  };
 
   const updateMut = useMutation({
     mutationFn: async () => apiRequest("PATCH", "/api/auth/me", { bio, avatarHue: hue }),
@@ -41,6 +47,59 @@ export default function Profile() {
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
+
+  const avatarMut = useMutation({
+    mutationFn: async (file: File) => {
+      const res = await fetch(`${getApiBase()}/api/auth/me/avatar`, {
+        method: "POST",
+        headers: {
+          "x-auth-token": getAuthToken() ?? "",
+          "content-type": file.type || "image/jpeg",
+        },
+        body: file,
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        try {
+          throw new Error(JSON.parse(txt).message || txt);
+        } catch (e: any) {
+          throw new Error(txt || res.statusText);
+        }
+      }
+      return res.json();
+    },
+    onSuccess: async () => {
+      await refresh();
+      qc.invalidateQueries({ queryKey: ["/api/stories/mine"] });
+      qc.invalidateQueries({ queryKey: ["/api/stories"] });
+      toast({ title: "Avatar atualizado" });
+    },
+    onError: (e: any) => toast({ title: "Erro no upload", description: e.message, variant: "destructive" }),
+  });
+
+  const removeAvatarMut = useMutation({
+    mutationFn: async () => apiRequest("PATCH", "/api/auth/me", { avatarUrl: "" }),
+    onSuccess: async () => {
+      await refresh();
+      toast({ title: "Avatar removido" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!f.type.startsWith("image/")) {
+      toast({ title: "Selecione uma imagem", variant: "destructive" });
+      return;
+    }
+    if (f.size > 4 * 1024 * 1024) {
+      toast({ title: "Imagem muito grande", description: "Máximo de 4MB.", variant: "destructive" });
+      return;
+    }
+    avatarMut.mutate(f);
+    e.target.value = "";
+  };
 
   if (!user) {
     return (
@@ -61,7 +120,7 @@ export default function Profile() {
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
       {/* header */}
       <div className="flex flex-col items-start gap-4 rounded-xl border border-border/70 bg-card/60 p-6 sm:flex-row sm:items-center">
-        <Avatar user={{ username: user.username, avatarHue: hue }} size="xl" />
+        <Avatar user={avatarUser} size="xl" />
         <div className="flex-1">
           <h1 className="font-display text-2xl font-bold">{user.username}</h1>
           <p className="text-sm text-muted-foreground">{user.email}</p>
@@ -77,6 +136,47 @@ export default function Profile() {
           <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
             <Pencil className="h-3.5 w-3.5" />
             Editar
+          </Button>
+        )}
+      </div>
+
+      {/* avatar upload */}
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-border/70 bg-card/40 p-4">
+        <Upload className="h-4 w-4 text-muted-foreground" />
+        <div className="flex-1">
+          <p className="text-sm font-medium">Foto do avatar</p>
+          <p className="text-xs text-muted-foreground">PNG, JPG ou WebP até 4MB.</p>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={onPickFile}
+          className="hidden"
+          data-testid="input-avatar-file"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fileRef.current?.click()}
+          disabled={avatarMut.isPending}
+          className="gap-1.5"
+          data-testid="button-upload-avatar"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          {avatarMut.isPending ? "Enviando..." : "Enviar foto"}
+        </Button>
+        {user.avatarUrl && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => removeAvatarMut.mutate()}
+            disabled={removeAvatarMut.isPending}
+            className="gap-1.5 text-muted-foreground"
+            data-testid="button-remove-avatar"
+          >
+            <ImageOff className="h-3.5 w-3.5" />
+            Remover
           </Button>
         )}
       </div>
@@ -97,7 +197,7 @@ export default function Profile() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Cor do avatar</Label>
+              <Label>Cor do avatar (quando sem foto)</Label>
               <div className="flex flex-wrap gap-2">
                 {HUE_PRESETS.map((h) => (
                   <button
@@ -152,4 +252,8 @@ export default function Profile() {
       </section>
     </div>
   );
+}
+
+function getApiBase() {
+  return "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 }

@@ -11,11 +11,16 @@ import {
   Lock,
   PenLine,
   CalendarDays,
+  Pencil,
+  Trash2,
+  Check,
+  X,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/avatar";
+import { ReportButton } from "@/components/report-button";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -80,6 +85,7 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
       qc.invalidateQueries({ queryKey: ["/api/stories", id] });
       qc.invalidateQueries({ queryKey: ["/api/stories/featured"] });
       qc.invalidateQueries({ queryKey: ["/api/stories"] });
+      qc.invalidateQueries({ queryKey: ["/api/notifications/unread"] });
     },
   });
 
@@ -157,7 +163,9 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
             {meta.label}
           </span>
           {story.isMature && (
-            <Badge variant="destructive" className="text-[10px]">+18</Badge>
+            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400">
+              Conteúdo sensível
+            </Badge>
           )}
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <span className={cn("h-1.5 w-1.5 rounded-full", story.status === "completed" ? "bg-muted-foreground" : "bg-primary animate-pulse-glow")} />
@@ -173,15 +181,20 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
         {tags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {tags.map((t) => (
-              <span key={t} className="rounded bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              <Link
+                key={t}
+                href={`/biblioteca?tag=${encodeURIComponent(t)}`}
+                className="rounded bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary"
+                data-testid={`tag-${t}`}
+              >
                 #{t}
-              </span>
+              </Link>
             ))}
           </div>
         )}
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
-          <div className="flex items-center gap-2">
+          <Link href={`/u/${story.author.username}`} className="flex items-center gap-2 hover:opacity-80">
             <Avatar user={story.author} size="md" />
             <div>
               <p className="text-sm font-medium">{story.author.username}</p>
@@ -190,7 +203,7 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
                 {formatDate(story.createdAt)}
               </p>
             </div>
-          </div>
+          </Link>
 
           <div className="flex items-center gap-2">
             <Button
@@ -217,6 +230,7 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
               {isRoleplay ? <Users className="h-3.5 w-3.5" /> : <BookOpen className="h-3.5 w-3.5" />}
               {story.partCount} {story.partCount === 1 ? "trecho" : "trechos"}
             </span>
+            <ReportButton targetType="story" targetId={story.id} storyId={story.id} size="sm" variant="outline" label="Denunciar" />
           </div>
         </div>
       </header>
@@ -235,25 +249,7 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
         ) : partsQ.data && partsQ.data.length > 0 ? (
           <div className="mt-4 space-y-5">
             {partsQ.data.map((part, idx) => (
-              <article
-                key={part.id}
-                className="relative rounded-xl border border-border/60 bg-card/40 p-5"
-                data-testid={`part-${part.id}`}
-              >
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 font-display text-xs font-bold text-primary">
-                      {idx + 1}
-                    </span>
-                    <Avatar user={part.author} size="sm" />
-                    <span className="text-sm font-medium">{part.author.username}</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{timeAgo(part.createdAt)}</span>
-                </div>
-                <div className="prose-arcane whitespace-pre-wrap text-foreground/90">
-                  {part.content}
-                </div>
-              </article>
+              <PartItem key={part.id} part={part} index={idx} storyId={id} />
             ))}
           </div>
         ) : (
@@ -366,25 +362,200 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
 
         <div className="mt-4 space-y-3">
           {commentsQ.data?.map((c) => (
-            <div
-              key={c.id}
-              className="flex gap-3 rounded-lg border border-border/50 bg-card/30 p-3"
-              data-testid={`comment-${c.id}`}
-            >
-              <Avatar user={c.author} size="sm" />
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{c.author.username}</span>
-                  <span className="text-xs text-muted-foreground">{timeAgo(c.createdAt)}</span>
-                </div>
-                <p className="mt-0.5 text-sm text-foreground/90 whitespace-pre-wrap">{c.content}</p>
-              </div>
-            </div>
+            <CommentItem key={c.id} comment={c} storyId={id} />
           ))}
         </div>
 
         {isOwner && <DeleteStoryBlock id={id} />}
       </section>
+    </div>
+  );
+}
+
+// ---------- Part with edit/delete ----------
+function PartItem({ part, index, storyId }: { part: PartWithAuthor; index: number; storyId: number }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(part.content);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const isMine = user?.id === part.authorId;
+
+  const editMut = useMutation({
+    mutationFn: async () =>
+      apiRequest("PATCH", `/api/stories/${storyId}/parts/${part.id}`, { content: draft }),
+    onSuccess: () => {
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["/api/stories", storyId, "parts"] });
+      toast({ title: "Trecho atualizado" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const delMut = useMutation({
+    mutationFn: async () => apiRequest("DELETE", `/api/stories/${storyId}/parts/${part.id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/stories", storyId, "parts"] });
+      qc.invalidateQueries({ queryKey: ["/api/stories", storyId] });
+      toast({ title: "Trecho removido" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <article
+      className="relative rounded-xl border border-border/60 bg-card/40 p-5"
+      data-testid={`part-${part.id}`}
+    >
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 font-display text-xs font-bold text-primary">
+            {index + 1}
+          </span>
+          <Link href={`/u/${part.author.username}`} className="flex items-center gap-2 hover:opacity-80">
+            <Avatar user={part.author} size="sm" />
+            <span className="text-sm font-medium">{part.author.username}</span>
+          </Link>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">{timeAgo(part.createdAt)}</span>
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={6}
+            maxLength={6000}
+            data-testid={`textarea-edit-part-${part.id}`}
+          />
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setDraft(part.content); }}>
+              <X className="h-3.5 w-3.5" /> Cancelar
+            </Button>
+            <Button size="sm" onClick={() => editMut.mutate()} disabled={draft.length < 20 || editMut.isPending} data-testid={`button-save-part-${part.id}`}>
+              <Check className="h-3.5 w-3.5" /> Salvar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="prose-arcane whitespace-pre-wrap text-foreground/90">
+          {part.content}
+        </div>
+      )}
+
+      {isMine && !editing && (
+        <div className="mt-3 flex items-center justify-end gap-1 border-t border-border/60 pt-3">
+          <Button size="sm" variant="ghost" className="gap-1 text-muted-foreground" onClick={() => setEditing(true)} data-testid={`button-edit-part-${part.id}`}>
+            <Pencil className="h-3.5 w-3.5" /> Editar
+          </Button>
+          {confirmingDelete ? (
+            <>
+              <span className="text-xs text-destructive">Excluir este trecho?</span>
+              <Button size="sm" variant="destructive" onClick={() => delMut.mutate()} disabled={delMut.isPending} data-testid={`button-confirm-delete-part-${part.id}`}>
+                Sim
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(false)}>Não</Button>
+            </>
+          ) : (
+            <Button size="sm" variant="ghost" className="gap-1 text-muted-foreground" onClick={() => setConfirmingDelete(true)} data-testid={`button-delete-part-${part.id}`}>
+              <Trash2 className="h-3.5 w-3.5" /> Excluir
+            </Button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-2 flex justify-end">
+        <ReportButton targetType="part" targetId={part.id} storyId={storyId} size="sm" variant="ghost" label="Denunciar" />
+      </div>
+    </article>
+  );
+}
+
+// ---------- Comment with edit/delete ----------
+function CommentItem({ comment, storyId }: { comment: CommentWithAuthor; storyId: number }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.content);
+  const isMine = user?.id === comment.authorId;
+
+  const editMut = useMutation({
+    mutationFn: async () =>
+      apiRequest("PATCH", `/api/stories/${storyId}/comments/${comment.id}`, { content: draft }),
+    onSuccess: () => {
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["/api/stories", storyId, "comments"] });
+      toast({ title: "Comentário atualizado" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const delMut = useMutation({
+    mutationFn: async () => apiRequest("DELETE", `/api/stories/${storyId}/comments/${comment.id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/stories", storyId, "comments"] });
+      qc.invalidateQueries({ queryKey: ["/api/stories", storyId] });
+      toast({ title: "Comentário removido" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div
+      className="flex gap-3 rounded-lg border border-border/50 bg-card/30 p-3"
+      data-testid={`comment-${comment.id}`}
+    >
+      <Avatar user={comment.author} size="sm" />
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <Link href={`/u/${comment.author.username}`} className="text-sm font-medium hover:underline">
+            {comment.author.username}
+          </Link>
+          <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
+        </div>
+        {editing ? (
+          <div className="mt-1 space-y-2">
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={2}
+              maxLength={800}
+              data-testid={`textarea-edit-comment-${comment.id}`}
+            />
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setDraft(comment.content); }}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={() => editMut.mutate()} disabled={draft.trim().length < 2 || editMut.isPending} data-testid={`button-save-comment-${comment.id}`}>
+                Salvar
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-0.5 text-sm text-foreground/90 whitespace-pre-wrap">{comment.content}</p>
+        )}
+        {isMine && !editing && (
+          <div className="mt-1 flex items-center gap-2">
+            <button onClick={() => setEditing(true)} className="text-xs text-muted-foreground hover:text-foreground" data-testid={`button-edit-comment-${comment.id}`}>
+              Editar
+            </button>
+            <span className="text-muted-foreground/40">·</span>
+            <button onClick={() => delMut.mutate()} className="text-xs text-muted-foreground hover:text-destructive" data-testid={`button-delete-comment-${comment.id}`}>
+              Excluir
+            </button>
+          </div>
+        )}
+        {!editing && (
+          <div className="mt-1 flex justify-end">
+            <ReportButton targetType="comment" targetId={comment.id} storyId={storyId} size="sm" variant="ghost" label="Denunciar" />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

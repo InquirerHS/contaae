@@ -25,7 +25,7 @@ export default function Home() {
           <div className="max-w-2xl">
             <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
               <Sparkles className="h-3.5 w-3.5" />
-              Cidade futurista · onde magia encontra tecnologia
+              Se perca entre a realidade e a ficção neste espaço entre dimensões
             </span>
             <h1 className="mt-5 font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
               Toda história
@@ -67,7 +67,7 @@ export default function Home() {
             <div className="mt-10 flex flex-wrap gap-6 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-2">
                 <Shield className="h-4 w-4 text-primary" />
-                Espaço +18
+                Maioridade legal
               </span>
               <span className="inline-flex items-center gap-2">
                 <Users className="h-4 w-4 text-primary" />

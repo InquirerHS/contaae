@@ -5,15 +5,24 @@ import { CATEGORY_META, parseTags, timeAgo } from "@/lib/format";
 import { Avatar } from "./avatar";
 import { cn } from "@/lib/utils";
 
+function goTo(path: string) {
+  window.location.hash = path;
+}
+
 export function StoryCard({ story }: { story: StoryWithRelations }) {
   const meta = CATEGORY_META[story.category];
   const tags = parseTags(story.tags).slice(0, 3);
 
   return (
-    <Link
-      href={`/historia/${story.id}`}
+    <div
+      onClick={() => goTo(`/historia/${story.id}`)}
+      role="link"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") goTo(`/historia/${story.id}`);
+      }}
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl border border-border/70 bg-card/70 p-5 transition-all",
+        "group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-border/70 bg-card/70 p-5 transition-all",
         "hover:border-primary/40 hover:shadow-lg hover:-translate-y-0.5",
         meta.catClass
       )}
@@ -30,8 +39,9 @@ export function StoryCard({ story }: { story: StoryWithRelations }) {
           {meta.short}
         </span>
         {story.isMature && (
-          <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-bold text-destructive">
-            +18
+          <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+            <span className="h-1 w-1 rounded-full bg-amber-500" />
+            Sensível
           </span>
         )}
       </div>
@@ -44,21 +54,31 @@ export function StoryCard({ story }: { story: StoryWithRelations }) {
       {tags.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {tags.map((t) => (
-            <span
+            <button
               key={t}
-              className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                goTo(`/biblioteca?tag=${encodeURIComponent(t)}`);
+              }}
+              className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary"
+              data-testid={`tag-${t}`}
             >
               #{t}
-            </span>
+            </button>
           ))}
         </div>
       )}
 
       <div className="mt-auto flex items-center justify-between gap-2 pt-4 text-xs text-muted-foreground">
-        <div className="flex items-center gap-1.5">
+        <Link
+          href={`/u/${story.author.username}`}
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1.5 hover:opacity-80"
+        >
           <Avatar user={story.author} size="sm" />
           <span className="font-medium text-foreground/80">{story.author.username}</span>
-        </div>
+        </Link>
         <span>{timeAgo(story.updatedAt)}</span>
       </div>
 
@@ -80,6 +100,6 @@ export function StoryCard({ story }: { story: StoryWithRelations }) {
           {story.commentCount}
         </span>
       </div>
-    </Link>
+    </div>
   );
 }

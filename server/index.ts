@@ -4,6 +4,8 @@ import type { Request } from 'express';
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
+import path from "node:path";
+import fs from "node:fs";
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,6 +65,11 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+
+  // serve uploaded avatars (created at runtime) in both dev and production
+  const uploadsDir = path.resolve(process.cwd(), "client/public/uploads");
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  app.use("/uploads", express.static(uploadsDir));
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

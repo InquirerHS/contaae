@@ -4,6 +4,8 @@ import {
   storyParts,
   likes,
   comments,
+  notifications,
+  reports,
   storyCategories,
   type StoryCategory,
 } from "@shared/schema";
@@ -17,10 +19,13 @@ import type {
   InsertStory,
   InsertStoryPart,
   InsertComment,
+  Notification,
+  Report,
+  ReportTarget,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import { eq, and, desc, ne } from "drizzle-orm";
+import { eq, and, desc, ne, like, or, sql } from "drizzle-orm";
 
 const sqlite = new Database("data.db");
 sqlite.pragma("journal_mode = WAL");
@@ -29,10 +34,28 @@ sqlite.pragma("foreign_keys = ON");
 
 export const db = drizzle(sqlite);
 
+function parseTagsLocal(tags: string): string[] {
+  try {
+    const arr = JSON.parse(tags);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
 function stripPassword(u: User | undefined): SafeUser | undefined {
   if (!u) return undefined;
   const { password, ...safe } = u;
   return safe;
+}
+
+export interface NotificationWithActor extends Notification {
+  actor: SafeUser | null;
+  storyTitle: string | null;
+}
+
+export interface ReportWithReporter extends Report {
+  reporter: SafeUser;
 }
 
 export interface StoryWithRelations extends Story {
@@ -57,10 +80,11 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  updateUser(id: number, patch: Partial<Pick<User, "bio" | "avatarHue">>): Promise<SafeUser | undefined>;
+  updateUser(id: number, patch: Partial<Pick<User, "bio" | "avatarHue" | "avatarUrl">>): Promise<SafeUser | undefined>;
 
   // stories
-  listStories(category?: StoryCategory, search?: string, viewerId?: number): Promise<StoryWithRelations[]>;
+  listStories(category?: StoryCategory, search?: string, viewerId?: number, opts?: { tag?: string; authorId?: number; limit?: number; offset?: number }): Promise<StoryWithRelations[]>;
+  countStories(category?: StoryCategory, search?: string, opts?: { tag?: string; authorId?: number }): Promise<number>;
   getStory(id: number, viewerId?: number): Promise<StoryWithRelations | undefined>;
   listStoriesByAuthor(userId: number): Promise<StoryWithRelations[]>;
   createStory(userId: number, data: InsertStory): Promise<Story>;
@@ -70,6 +94,8 @@ export interface IStorage {
   listParts(storyId: number): Promise<PartWithAuthor[]>;
   addPart(storyId: number, userId: number, content: string): Promise<StoryPart>;
   canAddPart(storyId: number, userId: number): Promise<{ allowed: boolean; reason?: string }>;
+  updatePart(partId: number, userId: number, content: string): Promise<StoryPart | undefined>;
+  deletePart(partId: number, userId: number): Promise<boolean>;
 
   // likes
   toggleLike(storyId: number, userId: number): Promise<{ liked: boolean; count: number }>;
@@ -78,6 +104,19 @@ export interface IStorage {
   // comments
   listComments(storyId: number): Promise<CommentWithAuthor[]>;
   addComment(storyId: number, userId: number, content: string): Promise<Comment>;
+  updateComment(commentId: number, userId: number, content: string): Promise<Comment | undefined>;
+  deleteComment(commentId: number, userId: number): Promise<boolean>;
+
+  // notifications
+  listNotifications(userId: number): Promise<NotificationWithActor[]>;
+  unreadCount(userId: number): Promise<number>;
+  markAllRead(userId: number): Promise<void>;
+  notify(opts: { userId: number; actorId?: number; type: string; storyId?: number; partId?: number; message: string }): void;
+
+  // reports
+  createReport(reporterId: number, targetType: ReportTarget, targetId: number, reason: string): Promise<Report>;
+  listReports(): Promise<ReportWithReporter[]>;
+  updateReportStatus(id: number, status: string): Promise<Report | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -100,8 +139,10 @@ export class DatabaseStorage implements IStorage {
     return db.insert(users).values(user).returning().get();
   }
 
-  async updateUser(id: number, patch: Partial<Pick<User, "bio" | "avatarHue">>): Promise<SafeUser | undefined> {
-    const updated = db.update(users).set(patch).where(eq(users.id, id)).returning().get();
+  async updateUser(id: number, patch: Partial<Pick<User, "bio" | "avatarHue" | "avatarUrl">>): Promise<SafeUser | undefined> {
+    const clean = { ...patch };
+    if (clean.avatarUrl === "") clean.avatarUrl = null;
+    const updated = db.update(users).set(clean).where(eq(users.id, id)).returning().get();
     return stripPassword(updated);
   }
 
@@ -136,20 +177,49 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async listStories(category?: StoryCategory, search?: string, viewerId?: number): Promise<StoryWithRelations[]> {
-    const rows = (category
+  async listStories(category?: StoryCategory, search?: string, viewerId?: number, opts?: { tag?: string; authorId?: number; limit?: number; offset?: number }): Promise<StoryWithRelations[]> {
+    let rows = (category
       ? db.select().from(stories).where(eq(stories.category, category)).orderBy(desc(stories.updatedAt)).all()
       : db.select().from(stories).orderBy(desc(stories.updatedAt)).all()
     ) as Story[];
 
-    const filtered = search
-      ? rows.filter(
-          (s) =>
-            s.title.toLowerCase().includes(search.toLowerCase()) ||
-            s.synopsis.toLowerCase().includes(search.toLowerCase())
-        )
-      : rows;
-    return this.attachRelations(filtered, viewerId);
+    if (opts?.authorId) rows = rows.filter((s) => s.authorId === opts.authorId);
+    if (opts?.tag) {
+      const t = opts.tag.toLowerCase();
+      rows = rows.filter((s) => parseTagsLocal(s.tags).some((x) => x.toLowerCase() === t));
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      rows = rows.filter(
+        (s) =>
+          s.title.toLowerCase().includes(q) ||
+          s.synopsis.toLowerCase().includes(q) ||
+          parseTagsLocal(s.tags).some((x) => x.toLowerCase().includes(q))
+      );
+    }
+    const limit = opts?.limit ?? 12;
+    const offset = opts?.offset ?? 0;
+    const paged = rows.slice(offset, offset + limit);
+    return this.attachRelations(paged, viewerId);
+  }
+
+  async countStories(category?: StoryCategory, search?: string, opts?: { tag?: string; authorId?: number }): Promise<number> {
+    let rows = (category
+      ? db.select().from(stories).where(eq(stories.category, category)).all()
+      : db.select().from(stories).all()
+    ) as Story[];
+    if (opts?.authorId) rows = rows.filter((s) => s.authorId === opts.authorId);
+    if (opts?.tag) {
+      const t = opts.tag.toLowerCase();
+      rows = rows.filter((s) => parseTagsLocal(s.tags).some((x) => x.toLowerCase() === t));
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      rows = rows.filter(
+        (s) => s.title.toLowerCase().includes(q) || s.synopsis.toLowerCase().includes(q)
+      );
+    }
+    return rows.length;
   }
 
   async getStory(id: number, viewerId?: number): Promise<StoryWithRelations | undefined> {
@@ -233,6 +303,17 @@ export class DatabaseStorage implements IStorage {
         .set({ updatedAt: new Date().toISOString(), status: story.status === "open" ? "ongoing" : story.status })
         .where(eq(stories.id, storyId))
         .run();
+      // notify story author (if not the contributor)
+      if (story.authorId !== userId) {
+        this.notify({
+          userId: story.authorId,
+          actorId: userId,
+          type: "part",
+          storyId,
+          partId: part.id,
+          message: `Alguém adicionou um trecho à sua história "${story.title}"`,
+        });
+      }
     }
     return part;
   }
@@ -278,6 +359,17 @@ export class DatabaseStorage implements IStorage {
       db.delete(likes).where(eq(likes.id, existing.id)).run();
     } else {
       db.insert(likes).values({ storyId, userId }).run();
+      // notify story author
+      const story = db.select().from(stories).where(eq(stories.id, storyId)).get() as Story | undefined;
+      if (story && story.authorId !== userId) {
+        this.notify({
+          userId: story.authorId,
+          actorId: userId,
+          type: "like",
+          storyId,
+          message: `Alguém curtiu sua história "${story.title}"`,
+        });
+      }
     }
     const count = db.select().from(likes).where(eq(likes.storyId, storyId)).all().length;
     return { liked: !existing, count };
@@ -302,11 +394,119 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addComment(storyId: number, userId: number, content: string): Promise<Comment> {
-    return db
+    const created = db
       .insert(comments)
       .values({ storyId, authorId: userId, content })
       .returning()
       .get();
+    const story = db.select().from(stories).where(eq(stories.id, storyId)).get() as Story | undefined;
+    if (story && story.authorId !== userId) {
+      this.notify({
+        userId: story.authorId,
+        actorId: userId,
+        type: "comment",
+        storyId,
+        message: `Alguém comentou na sua história "${story.title}"`,
+      });
+    }
+    return created;
+  }
+
+  async updateComment(commentId: number, userId: number, content: string): Promise<Comment | undefined> {
+    const existing = db.select().from(comments).where(eq(comments.id, commentId)).get() as Comment | undefined;
+    if (!existing || existing.authorId !== userId) return undefined;
+    return db.update(comments).set({ content }).where(eq(comments.id, commentId)).returning().get();
+  }
+
+  async deleteComment(commentId: number, userId: number): Promise<boolean> {
+    const existing = db.select().from(comments).where(eq(comments.id, commentId)).get() as Comment | undefined;
+    if (!existing || existing.authorId !== userId) return false;
+    db.delete(comments).where(eq(comments.id, commentId)).run();
+    return true;
+  }
+
+  // ---------- PART edit/delete ----------
+  async updatePart(partId: number, userId: number, content: string): Promise<StoryPart | undefined> {
+    const existing = db.select().from(storyParts).where(eq(storyParts.id, partId)).get() as StoryPart | undefined;
+    if (!existing || existing.authorId !== userId) return undefined;
+    return db.update(storyParts).set({ content }).where(eq(storyParts.id, partId)).returning().get();
+  }
+
+  async deletePart(partId: number, userId: number): Promise<boolean> {
+    const existing = db.select().from(storyParts).where(eq(storyParts.id, partId)).get() as StoryPart | undefined;
+    if (!existing || existing.authorId !== userId) return false;
+    db.delete(storyParts).where(eq(storyParts.id, partId)).run();
+    // re-number order for the story
+    const parts = db.select().from(storyParts).where(eq(storyParts.storyId, existing.storyId)).orderBy(storyParts.order).all() as StoryPart[];
+ parts.forEach((p, i) => {
+      db.update(storyParts).set({ order: i }).where(eq(storyParts.id, p.id)).run();
+    });
+    return true;
+  }
+
+  // ---------- NOTIFICATIONS ----------
+  notify(opts: { userId: number; actorId?: number; type: string; storyId?: number; partId?: number; message: string }): void {
+    try {
+      db.insert(notifications)
+        .values({
+          userId: opts.userId,
+          actorId: opts.actorId ?? null,
+          type: opts.type,
+          storyId: opts.storyId ?? null,
+          partId: opts.partId ?? null,
+          message: opts.message,
+          read: false,
+        })
+        .run();
+    } catch (e) {
+      // never let notifications break the main operation
+      console.error("notify failed", e);
+    }
+  }
+
+  async listNotifications(userId: number): Promise<NotificationWithActor[]> {
+    const rows = db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt))
+      .limit(30)
+      .all() as Notification[];
+    return rows.map((n) => {
+      const actor = n.actorId ? stripPassword(db.select().from(users).where(eq(users.id, n.actorId)).get()) ?? null : null;
+      const story = n.storyId ? (db.select().from(stories).where(eq(stories.id, n.storyId)).get() as Story | undefined) : undefined;
+      return { ...n, actor, storyTitle: story?.title ?? null };
+    });
+  }
+
+  async unreadCount(userId: number): Promise<number> {
+    return db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.read, false))).all().length;
+  }
+
+  async markAllRead(userId: number): Promise<void> {
+    db.update(notifications).set({ read: true }).where(and(eq(notifications.userId, userId), eq(notifications.read, false))).run();
+  }
+
+  // ---------- REPORTS ----------
+  async createReport(reporterId: number, targetType: ReportTarget, targetId: number, reason: string): Promise<Report> {
+    const created = db
+      .insert(reports)
+      .values({ reporterId, targetType, targetId, reason })
+      .returning()
+      .get();
+    return created;
+  }
+
+  async listReports(): Promise<ReportWithReporter[]> {
+    const rows = db.select().from(reports).orderBy(desc(reports.createdAt)).all() as Report[];
+    return rows.map((r) => ({
+      ...r,
+      reporter: stripPassword(db.select().from(users).where(eq(users.id, r.reporterId)).get())!,
+    }));
+  }
+
+  async updateReportStatus(id: number, status: string): Promise<Report | undefined> {
+    return db.update(reports).set({ status }).where(eq(reports.id, id)).returning().get();
   }
 }
 
