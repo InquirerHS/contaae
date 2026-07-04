@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Library, Home, LogOut, User as UserIcon, Menu, X, Bell, Shield } from "lucide-react";
+import { Plus, Library, Home, LogOut, User as UserIcon, Menu, X, Bell, Shield, ScrollText, IdCard, Ghost } from "lucide-react";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { Avatar } from "./avatar";
@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 const navLinks = [
   { href: "/", label: "Início", icon: Home },
   { href: "/biblioteca", label: "Biblioteca", icon: Library },
+  { href: "/bosque", label: "Bosque", icon: Ghost },
+  { href: "/taverna", label: "Taverna", icon: ScrollText },
 ];
 
 export function Nav() {
@@ -175,6 +177,14 @@ export function Nav() {
             ))}
             {user ? (
               <>
+                <Link
+                  href="/fichas"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                >
+                  <IdCard className="h-4 w-4" />
+                  Minhas fichas
+                </Link>
                 <Link
                   href="/nova-historia"
                   onClick={() => setMobileOpen(false)}

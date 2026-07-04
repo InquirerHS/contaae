@@ -37,7 +37,7 @@ export default function Home() {
               </span>
             </h1>
             <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg">
-              Compartilhe relatos reais, publique creepypastas arrepiantes ou junte-se a outras
+              Compartilhe relatos reais, explore o Bosque Assombrado ou junte-se a outras
               pessoas para criar histórias colaborativas, um turno de cada vez — como num RPG de
               palavras.
             </p>

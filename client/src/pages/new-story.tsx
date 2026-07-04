@@ -206,6 +206,28 @@ export default function NewStory() {
           </span>
         </label>
 
+        {/* AI participation */}
+        <label
+          htmlFor="ai"
+          className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/70 bg-card/40 p-3"
+        >
+          <Checkbox
+            id="ai"
+            checked={aiEnabled}
+            onCheckedChange={(v) => setAiEnabled(v === true)}
+            data-testid="checkbox-ai"
+          />
+          <span className="text-sm">
+            <span className="flex items-center gap-1.5 font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+              Permitir IA (Conte com a IA)
+            </span>
+            <span className="block text-muted-foreground">
+              Participantes poderão convidar a IA a escrever o próximo trecho. Ela nunca escreve duas vezes seguidas — a narrativa sempre intercala entre pessoa e IA.
+            </span>
+          </span>
+        </label>
+
         {error && (
           <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             {error}

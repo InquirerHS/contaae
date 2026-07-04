@@ -15,12 +15,14 @@ import {
   Trash2,
   Check,
   X,
+  Sparkles,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/avatar";
 import { ReportButton } from "@/components/report-button";
+import { StarRating } from "@/components/star-rating";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -109,6 +111,36 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
       setCommentText("");
       qc.invalidateQueries({ queryKey: ["/api/stories", id, "comments"] });
       qc.invalidateQueries({ queryKey: ["/api/stories", id] });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const inviteAiMut = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/stories/${id}/invite-ai`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/stories", id, "parts"] });
+      qc.invalidateQueries({ queryKey: ["/api/stories", id] });
+      qc.invalidateQueries({ queryKey: ["/api/stories", id, "can-contribute"] });
+      toast({ title: "A IA contribuiu", description: "Um novo trecho entrou na narrativa." });
+    },
+    onError: (e: any) => toast({ title: "A IA não pôde escrever", description: e.message, variant: "destructive" }),
+  });
+
+  const rateMut = useMutation({
+    mutationFn: async (score: number) => apiRequest("POST", `/api/stories/${id}/rate`, { score }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/stories", id] });
+      qc.invalidateQueries({ queryKey: ["/api/stories"] });
+      qc.invalidateQueries({ queryKey: ["/api/stories/featured"] });
+    },
+    onError: (e: any) => toast({ title: "Erro ao avaliar", description: e.message, variant: "destructive" }),
+  });
+
+  const clearRateMut = useMutation({
+    mutationFn: async () => apiRequest("DELETE", `/api/stories/${id}/rate`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/stories", id] });
+      qc.invalidateQueries({ queryKey: ["/api/stories"] });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -232,6 +264,54 @@ export default function StoryDetail({ params }: { params: { id: string } }) {
             </span>
             <ReportButton targetType="story" targetId={story.id} storyId={story.id} size="sm" variant="outline" label="Denunciar" />
           </div>
+        </div>
+
+        {story.aiEnabled && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Sparkles className="h-4 w-4 text-violet-500 dark:text-violet-400" />
+              <span>
+                Esta história aceita a IA como co-narradora.
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!user) {
+                  toast({ title: "Faça login para convidar a IA", variant: "destructive" });
+                  return;
+                }
+                inviteAiMut.mutate();
+              }}
+              disabled={inviteAiMut.isPending}
+              className="gap-1.5 border-violet-500/40 text-violet-600 hover:bg-violet-500/10 dark:text-violet-400"
+              data-testid="button-invite-ai"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {inviteAiMut.isPending ? "A IA está escrevendo..." : "Convidar a IA"}
+            </Button>
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+          <StarRating
+            value={story.ratingAvg}
+            total={story.ratingTotal}
+            myRating={story.myRating}
+            readOnly={!user}
+            onRate={(s) => rateMut.mutate(s)}
+            onClear={() => clearRateMut.mutate()}
+            size="md"
+          />
+          {!user && (
+            <span className="text-xs text-muted-foreground">
+              <Link href="/entrar" className="font-medium text-primary hover:underline">
+                Faça login
+              </Link>{" "}
+              para avaliar.
+            </span>
+          )}
         </div>
       </header>
 
@@ -417,6 +497,12 @@ function PartItem({ part, index, storyId }: { part: PartWithAuthor; index: numbe
             <Avatar user={part.author} size="sm" />
             <span className="text-sm font-medium">{part.author.username}</span>
           </Link>
+          {part.isAi && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400" data-testid={`badge-ai-${part.id}`}>
+              <Sparkles className="h-3 w-3" />
+              Trecho da IA
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground">{timeAgo(part.createdAt)}</span>

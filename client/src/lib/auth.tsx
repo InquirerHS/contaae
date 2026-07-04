@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-import { apiRequest, setAuthToken } from "./queryClient";
+import { apiRequest, setAuthToken, queryClient } from "./queryClient";
 import type { SafeUser } from "./types";
 
 interface AuthState {
@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     setAuthToken(data.token);
     setUser(data.user);
+    queryClient.invalidateQueries();
   };
 
   const register = async (data: RegisterData) => {
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = await res.json();
     setAuthToken(result.token);
     setUser(result.user);
+    queryClient.invalidateQueries();
   };
 
   const refresh = async () => {
@@ -70,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setAuthToken(null);
     setUser(null);
+    queryClient.clear();
   };
 
   return (

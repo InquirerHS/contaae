@@ -9,11 +9,27 @@ import {
   insertStoryPartSchema,
   insertCommentSchema,
   insertReportSchema,
+  insertRatingSchema,
+  insertCharacterSchema,
+  insertQuestSchema,
+  insertParticipantSchema,
+  insertQuestPostSchema,
+  insertArgumentSchema,
+  insertForumTopicSchema,
+  insertForumPostSchema,
   storyCategories,
   reportTargets,
+  questStatuses,
+  moderationTargets,
+  moderationFlagStatuses,
   type StoryCategory,
   type ReportTarget,
+  type QuestStatus,
+  type ModerationTarget,
+  type ModerationFlagStatus,
 } from "@shared/schema";
+import { generateNextPart } from "./ai";
+import { classifyContent, shouldFlag } from "./moderation";
 import { z } from "zod";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -54,6 +70,18 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   (req as any).userId = userId;
   next();
+}
+
+// ---------- IA DE MODERAÇÃO (pós-publicação, não bloqueante) ----------
+// Roda em background após criar conteúdo; nunca impede a publicação.
+function runModeration(target: ModerationTarget, targetId: number, content: string) {
+  classifyContent(target, content)
+    .then((result) => {
+      if (shouldFlag(result)) {
+        return storage.createModerationFlag(target, targetId, result);
+      }
+    })
+    .catch((e) => console.warn("[moderation] falha ao classificar:", (e as Error)?.message));
 }
 
 export async function registerRoutes(
@@ -202,6 +230,7 @@ export async function registerRoutes(
     try {
       const data = insertStorySchema.parse(req.body);
       const story = await storage.createStory((req as any).userId, data);
+      runModeration("story", story.id, `${story.title} — ${story.synopsis}`);
       res.status(201).json(story);
     } catch (e) {
       next(e);
@@ -249,6 +278,7 @@ export async function registerRoutes(
       if (!check.allowed) return res.status(403).json({ message: check.reason });
       const data = insertStoryPartSchema.parse({ ...req.body, storyId: id });
       const part = await storage.addPart(id, userId, data.content);
+      runModeration("part", part.id, part.content);
       res.status(201).json(part);
     } catch (e) {
       next(e);
@@ -292,6 +322,7 @@ export async function registerRoutes(
       const id = parseInt(req.params.id, 10);
       const data = insertCommentSchema.parse({ ...req.body, storyId: id });
       const comment = await storage.addComment(id, (req as any).userId, data.content);
+      runModeration("comment", comment.id, comment.content);
       res.status(201).json(comment);
     } catch (e) {
       next(e);
@@ -404,6 +435,380 @@ export async function registerRoutes(
     try {
       await storage.markAllRead((req as any).userId);
       res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ---------- AI PARTICIPATION ("Conte com a IA") ----------
+  // any logged-in participant may invite the AI to write the next part
+  app.post("/api/stories/:id/invite-ai", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const story = await storage.getStory(id);
+      if (!story) return res.status(404).json({ message: "História não encontrada" });
+      const check = await storage.canAiAddPart(id);
+      if (!check.allowed) return res.status(403).json({ message: check.reason });
+      const parts = await storage.listParts(id);
+      const content = await generateNextPart({
+        story: { title: story.title, synopsis: story.synopsis, category: story.category, tags: story.tags, isMature: story.isMature },
+        parts: parts.map((p) => ({ content: p.content, isAi: p.isAi, order: p.order })),
+      });
+      const part = await storage.addAiPart(id, content);
+      res.status(201).json(part);
+    } catch (e: any) {
+      res.status(502).json({ message: e?.message || "A IA não conseguiu gerar um trecho agora." });
+    }
+  });
+
+  // ---------- RATINGS ----------
+  app.post("/api/stories/:id/rate", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { score } = insertRatingSchema.pick({ score: true }).parse(req.body);
+      // ensure the story exists
+      const story = await storage.getStory(id);
+      if (!story) return res.status(404).json({ message: "História não encontrada" });
+      const rating = await storage.rateStory(id, (req as any).userId, score);
+      res.json(rating);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.delete("/api/stories/:id/rate", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      await storage.removeRating(id, (req as any).userId);
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ============================ TAVERNA ============================
+
+  // ---------- CHARACTERS (fichas reutilizáveis, máx 2) ----------
+  app.get("/api/characters", requireAuth, async (req, res, next) => {
+    try {
+      const list = await storage.listCharacters((req as any).userId);
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/characters", requireAuth, async (req, res, next) => {
+    try {
+      const userId = (req as any).userId as number;
+      const count = await storage.countCharacters(userId);
+      if (count >= 2) return res.status(400).json({ message: "Você já tem o máximo de 2 fichas. Apague uma para criar outra." });
+      const data = insertCharacterSchema.parse(req.body);
+      const created = await storage.createCharacter(userId, data);
+      runModeration("character", created.id, `${created.name} — ${created.concept}`);
+      res.status(201).json(created);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.patch("/api/characters/:id", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const data = insertCharacterSchema.partial().parse(req.body);
+      const updated = await storage.updateCharacter(id, (req as any).userId, data);
+      if (!updated) return res.status(403).json({ message: "Você só pode editar suas próprias fichas" });
+      res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.delete("/api/characters/:id", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const ok = await storage.deleteCharacter(id, (req as any).userId);
+      if (!ok) return res.status(403).json({ message: "Você só pode remover suas próprias fichas" });
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ---------- QUESTS ----------
+  app.get("/api/quests", async (req, res, next) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const search = req.query.search as string | undefined;
+      const validStatus = status && (questStatuses as readonly string[]).includes(status) ? (status as QuestStatus) : undefined;
+      const list = await storage.listQuests({ status: validStatus, search });
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/quests/mine", requireAuth, async (req, res, next) => {
+    try {
+      const list = await storage.listQuests({ gmId: (req as any).userId });
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/quests", requireAuth, async (req, res, next) => {
+    try {
+      const data = insertQuestSchema.parse(req.body);
+      const created = await storage.createQuest((req as any).userId, data);
+      runModeration("quest", created.id, `${created.title} — ${created.setting} ${created.situation} ${created.brief}`);
+      res.status(201).json(created);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/quests/:id", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const quest = await storage.getQuest(id, getUserIdFromReq(req));
+      if (!quest) return res.status(404).json({ message: "Quest não encontrado" });
+      res.json(quest);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.patch("/api/quests/:id/status", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { status } = z.object({ status: z.enum(questStatuses) }).parse(req.body);
+      const updated = await storage.updateQuestStatus(id, (req as any).userId, status);
+      if (!updated) return res.status(403).json({ message: "Apenas o GM pode alterar o status do quest" });
+      res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.delete("/api/quests/:id", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const ok = await storage.deleteQuest(id, (req as any).userId);
+      if (!ok) return res.status(403).json({ message: "Apenas o GM pode remover o quest" });
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ---------- PARTICIPANTS ----------
+  app.get("/api/quests/:id/participants", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const list = await storage.listParticipants(id);
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/quests/:id/join", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const data = insertParticipantSchema.parse(req.body);
+      const part = await storage.joinQuest(id, (req as any).userId, data);
+      res.status(201).json(part);
+    } catch (e: any) {
+      res.status(400).json({ message: e?.message || "Não foi possível entrar no quest" });
+    }
+  });
+
+  app.delete("/api/quests/:id/participants/:userId", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const targetUserId = parseInt(req.params.userId, 10);
+      const ok = await storage.removeParticipant(id, targetUserId, (req as any).userId);
+      if (!ok) return res.status(403).json({ message: "Apenas o GM pode remover participantes" });
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ---------- QUEST POSTS (narrativa) ----------
+  app.get("/api/quests/:id/posts", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const list = await storage.listQuestPosts(id, getUserIdFromReq(req));
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/quests/:id/posts", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const data = insertQuestPostSchema.parse(req.body);
+      const post = await storage.addQuestPost(id, (req as any).userId, data);
+      runModeration("quest_post", post.id, post.content);
+      res.status(201).json(post);
+    } catch (e: any) {
+      res.status(400).json({ message: e?.message || "Não foi possível publicar o trecho" });
+    }
+  });
+
+  // autor reescreve trecho removido → cria revisão pendente
+  app.post("/api/quests/:id/posts/:postId/revise", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const postId = parseInt(req.params.postId, 10);
+      const data = insertQuestPostSchema.parse(req.body);
+      const post = await storage.addQuestRevision(id, (req as any).userId, postId, data);
+      res.status(201).json(post);
+    } catch (e: any) {
+      res.status(400).json({ message: e?.message || "Não foi possível enviar a revisão" });
+    }
+  });
+
+  // GM remove um trecho com motivo
+  app.delete("/api/quest-posts/:id", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { reason } = z.object({ reason: z.string().min(3, "Explique o motivo da remoção").max(500) }).parse(req.body);
+      const post = await storage.removeQuestPost(id, (req as any).userId, reason);
+      if (!post) return res.status(403).json({ message: "Apenas o GM pode remover trechos" });
+      res.json(post);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // GM aprova uma revisão pendente
+  app.post("/api/quest-posts/:id/approve", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const post = await storage.approveQuestPost(id, (req as any).userId);
+      if (!post) return res.status(403).json({ message: "Apenas o GM pode aprovar revisões" });
+      res.json(post);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ---------- ARGUMENTS ----------
+  app.post("/api/quest-posts/:id/argue", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { content } = insertArgumentSchema.pick({ content: true }).parse(req.body);
+      const arg = await storage.addArgument(id, (req as any).userId, content);
+      res.status(201).json(arg);
+    } catch (e: any) {
+      res.status(400).json({ message: e?.message || "Não foi possível enviar o argumento" });
+    }
+  });
+
+  app.post("/api/quest-arguments/:id/resolve", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { accepted, note } = z.object({ accepted: z.boolean(), note: z.string().max(500).optional() }).parse(req.body);
+      const arg = await storage.resolveArgument(id, (req as any).userId, accepted, note);
+      if (!arg) return res.status(403).json({ message: "Apenas o GM pode resolver argumentos" });
+      res.json(arg);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ============================ BOSQUE ASSOMBRADO (fórum) ============================
+  app.get("/api/forum/topics", async (req, res, next) => {
+    try {
+      const search = req.query.search as string | undefined;
+      const list = await storage.listForumTopics({ search });
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/forum/topics", requireAuth, async (req, res, next) => {
+    try {
+      const data = insertForumTopicSchema.parse(req.body);
+      const topic = await storage.createForumTopic((req as any).userId, data);
+      runModeration("forum_topic", topic.id, `${topic.title} — ${topic.body}`);
+      res.status(201).json(topic);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/forum/topics/:id", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const topic = await storage.getForumTopic(id);
+      if (!topic) return res.status(404).json({ message: "Tópico não encontrado" });
+      res.json(topic);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.patch("/api/forum/topics/:id/close", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const topic = await storage.closeForumTopic(id, (req as any).userId);
+      if (!topic) return res.status(403).json({ message: "Apenas o autor pode encerrar o tópico" });
+      res.json(topic);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/forum/topics/:id/posts", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const list = await storage.listForumPosts(id);
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/forum/topics/:id/posts", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const data = insertForumPostSchema.parse({ ...req.body, topicId: id });
+      const post = await storage.addForumPost(id, (req as any).userId, data);
+      runModeration("forum_post", post.id, post.content);
+      res.status(201).json(post);
+    } catch (e: any) {
+      res.status(400).json({ message: e?.message || "Não foi possível publicar a resposta" });
+    }
+  });
+
+  // ============================ MODERAÇÃO (sinalizações da IA) ============================
+  app.get("/api/moderation/flags", requireAuth, async (req, res, next) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const valid = status && (moderationFlagStatuses as readonly string[]).includes(status) ? (status as ModerationFlagStatus) : undefined;
+      const list = await storage.listModerationFilters(valid);
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.patch("/api/moderation/flags/:id", requireAuth, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { status, note } = z.object({
+        status: z.enum(moderationFlagStatuses),
+        note: z.string().max(500).optional(),
+      }).parse(req.body);
+      const updated = await storage.resolveModerationFlag(id, (req as any).userId, status, note);
+      if (!updated) return res.status(404).json({ message: "Sinalização não encontrada ou já resolvida" });
+      res.json(updated);
     } catch (e) {
       next(e);
     }

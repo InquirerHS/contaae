@@ -74,20 +74,26 @@ async function comment(token, storyId, content) {
   await like(u4.token, s1.id);
   await comment(u2.token, s1.id, "Isso aqui me pegou. Morei num prédio assim por anos e nunca soube o nome de ninguém.");
 
-  // Creepy story by terno
-  const s2 = await createStory(u2.token, {
-    title: "ODécimoTerceiroAndar",
-    synopsis: "O elevador só tinha doze botões. Toda noite, às 3:33, ele subia sozinho.",
-    category: "creepy",
-    tags: ["terror", "urbano", "elevador"],
-    accentHue: 332,
-    isMature: true,
+  // Bosque Assombrado: antiga creepypasta agora vira tópico do fórum
+  await fetch(`${BASE}/api/forum/topics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-auth-token": u2.token },
+    body: JSON.stringify({
+      title: "O Décimo Terceiro Andar",
+      body: "O prédio tinha doze andares. O painel do elevador também. Eu contava toda noite: um, dois, três... doze. Nunca treze. Mas às três e trinta e três da manhã, o elevador subia. Eu ouvia o motor arranhando, aquele chiado seco de cabo velho, e o marcador digital passava do 12 para um traço que não era número. Era só uma linha. Como se o prédio lembrasse de um andar que não existia mais.\n\nNa terceira noite, eu apertei o ouvido contra a porta. De dentro vinha uma respiração. Não de máquina. De gente. Devagar. Paciente. Como quem espera há muito tempo que alguém aperte o botão errado.",
+      accentHue: 332,
+      isMature: true,
+    }),
   });
-  await addPart(u2.token, s2.id, "O prédio tinha doze andares. O painel do elevador também. Eu contava toda noite: um, dois, três... doze. Nunca treze. Mas às três e trinta e três da manhã, o elevador subia. Eu ouvia o motor arranhando, aquele chiado seco de cabo velho, e o marcador digital passava do 12 para um traço que não era número. Era só uma linha. Como se o prédio lembrasse de um andar que não existia mais.");
-  await addPart(u2.token, s2.id, "Na terceira noite, eu apertei o ouvido contra a porta. De dentro vinha uma respiração. Não de máquina. De gente. Devagar. Paciente. Como quem espera há muito tempo que alguém aperte o botão errado.");
-  await like(u1.token, s2.id);
-  await like(u4.token, s2.id);
-  await comment(u3.token, s2.id, "Não vou mais olhar pro painel do elevador hoje.");
+  await fetch(`${BASE}/api/forum/topics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-auth-token": u1.token },
+    body: JSON.stringify({
+      title: "A casa da rua Aurora",
+      body: "Na minha rua tinha uma casa que ninguém entrava. Não por medo — por educação. A dona morreu em 1982 e o jardim cresceu tanto que cobriu a porta. Dizem que à noite acende uma luz na janela do fundo. Eu nunca acreditei. Até a noite em que o cachorro parou na frente do portão e não quis mais andar.",
+      accentHue: 270,
+    }),
+  });
 
   // Roleplay story
   const s3 = await createStory(u3.token, {

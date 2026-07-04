@@ -35,7 +35,7 @@ export function ReportButton({
 }: {
   targetType: ReportTarget;
   targetId: number;
-  storyId: number;
+  storyId?: number;
   size?: "icon" | "sm";
   variant?: "ghost" | "outline";
   label?: string;

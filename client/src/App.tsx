@@ -17,6 +17,11 @@ import Profile from "@/pages/profile";
 import PublicProfile from "@/pages/public-profile";
 import Notifications from "@/pages/notifications";
 import Moderation from "@/pages/moderation";
+import Taverna from "@/pages/taverna";
+import QuestDetail from "@/pages/quest-detail";
+import Characters from "@/pages/characters";
+import Bosque from "@/pages/bosque";
+import BosqueTopic from "@/pages/bosque-topic";
 
 function AppRouter() {
   return (
@@ -30,6 +35,11 @@ function AppRouter() {
       <Route path="/u/:username" component={PublicProfile} />
       <Route path="/notificacoes" component={Notifications} />
       <Route path="/moderacao" component={Moderation} />
+      <Route path="/taverna" component={Taverna} />
+      <Route path="/quest/:id" component={QuestDetail} />
+      <Route path="/fichas" component={Characters} />
+      <Route path="/bosque" component={Bosque} />
+      <Route path="/bosque/:id" component={BosqueTopic} />
       <Route component={NotFound} />
     </Switch>
   );

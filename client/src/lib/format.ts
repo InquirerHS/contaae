@@ -11,13 +11,6 @@ export const CATEGORY_META: Record<
     blurb: "Relatos verdadeiros que merecem ser contados.",
     emoji: "🪐",
   },
-  creepy: {
-    label: "Creepypastas",
-    short: "Creepy",
-    catClass: "cat-creepy",
-    blurb: "Narrativas de terror para arrepiar.",
-    emoji: "👁",
-  },
   roleplay: {
     label: "Role-play Colaborativo",
     short: "Roleplay",
@@ -27,7 +20,7 @@ export const CATEGORY_META: Record<
   },
 };
 
-export const CATEGORY_ORDER: StoryCategory[] = ["real", "creepy", "roleplay"];
+export const CATEGORY_ORDER: StoryCategory[] = ["real", "roleplay"];
 
 export function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();

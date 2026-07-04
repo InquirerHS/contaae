@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Heart, MessageCircle, BookOpen, Users } from "lucide-react";
+import { Heart, MessageCircle, BookOpen, Users, Star, Sparkles } from "lucide-react";
 import type { StoryWithRelations } from "@/lib/types";
 import { CATEGORY_META, parseTags, timeAgo } from "@/lib/format";
 import { Avatar } from "./avatar";
@@ -99,6 +99,21 @@ export function StoryCard({ story }: { story: StoryWithRelations }) {
           <MessageCircle className="h-3.5 w-3.5" />
           {story.commentCount}
         </span>
+        {story.aiEnabled && (
+          <span
+            className="inline-flex items-center gap-1 text-violet-500 dark:text-violet-400"
+            title="IA habilitada nesta história"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </span>
+        )}
+        {story.ratingTotal > 0 && (
+          <span className="ml-auto inline-flex items-center gap-1" data-testid={`text-rating-card-${story.id}`}>
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            {story.ratingAvg!.toFixed(1)}
+            <span className="text-muted-foreground">({story.ratingTotal})</span>
+          </span>
+        )}
       </div>
     </div>
   );
