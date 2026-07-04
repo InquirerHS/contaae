@@ -1,16 +1,48 @@
+# Dependências
 node_modules/
+
+# Ambiente local
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Configurações com chaves
+firebase-config.js
+firebaseConfig.js
+
+# Build
 dist/
+build/
+.cache/
 .vite/
 
-# SQLite database files — never commit; exposes demo data at rest
+# SQLite database — never commit; expõe dados de demonstração em repouso
 data.db
 data.db-shm
 data.db-wal
 data.db-journal
 
-.env
-.env.*
-!.env.example
-
+# Logs
+logs/
 *.log
+npm-debug.log*
+
+# Testes / cobertura
+coverage/
+
+# Sistema operacional
 .DS_Store
+Thumbs.db
+
+# IDEs e editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporários
+tmp/
+temp/
+*.tmp
