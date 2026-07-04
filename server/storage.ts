@@ -24,6 +24,7 @@ import {
 import type {
   User,
   SafeUser,
+  PublicUser,
   Story,
   StoryPart,
   Comment,
@@ -79,17 +80,25 @@ function stripPassword(u: User | undefined): SafeUser | undefined {
   return safe;
 }
 
+// Projeção pública: além da senha, nunca expor e-mail e data de nascimento
+// de um usuário para os demais (autores, GMs, comentaristas...).
+function toPublicUser(u: User | undefined): PublicUser | undefined {
+  if (!u) return undefined;
+  const { password, email, birthDate, ...pub } = u;
+  return pub;
+}
+
 export interface NotificationWithActor extends Notification {
-  actor: SafeUser | null;
+  actor: PublicUser | null;
   storyTitle: string | null;
 }
 
 export interface ReportWithReporter extends Report {
-  reporter: SafeUser;
+  reporter: PublicUser;
 }
 
 export interface StoryWithRelations extends Story {
-  author: SafeUser;
+  author: PublicUser;
   partCount: number;
   likeCount: number;
   commentCount: number;
@@ -100,48 +109,48 @@ export interface StoryWithRelations extends Story {
 }
 
 export interface PartWithAuthor extends StoryPart {
-  author: SafeUser;
+  author: PublicUser;
 }
 
 export interface CommentWithAuthor extends Comment {
-  author: SafeUser;
+  author: PublicUser;
 }
 
 // ---------- Taverna relation types ----------
 export interface QuestWithRelations extends Quest {
-  gm: SafeUser;
+  gm: PublicUser;
   slotsFilled: number;
   postCount: number;
   myParticipation: QuestParticipantWithRelations | null;
 }
 
 export interface QuestParticipantWithRelations extends QuestParticipant {
-  user: SafeUser;
+  user: PublicUser;
   character: Character;
 }
 
 export interface QuestPostWithRelations extends QuestPost {
-  author: SafeUser;
+  author: PublicUser;
   character: Character | null;
   arguments: QuestArgumentWithRelations[];
 }
 
 export interface QuestArgumentWithRelations extends QuestArgument {
-  author: SafeUser;
+  author: PublicUser;
 }
 
 // ---------- Bosque / Moderation relation types ----------
 export interface ForumTopicWithRelations extends ForumTopic {
-  author: SafeUser;
+  author: PublicUser;
 }
 
 export interface ForumPostWithAuthor extends ForumPost {
-  author: SafeUser;
+  author: PublicUser;
   children: ForumPostWithAuthor[];
 }
 
 export interface ModerationFlagWithRelations extends ModerationFlag {
-  resolver: SafeUser | null;
+  resolver: PublicUser | null;
   snippet: string;
 }
 
@@ -249,6 +258,7 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   // ---------- USERS ----------
   async getUser(id: number): Promise<SafeUser | undefined> {
+    // conta própria: mantém e-mail e data de nascimento (sem senha)
     return stripPassword(db.select().from(users).where(eq(users.id, id)).get());
   }
 
@@ -276,7 +286,7 @@ export class DatabaseStorage implements IStorage {
   // ---------- STORIES ----------
   private attachRelations(rows: Story[], viewerId?: number): StoryWithRelations[] {
     return rows.map((story) => {
-      const author = stripPassword(
+      const author = toPublicUser(
         db.select().from(users).where(eq(users.id, story.authorId)).get()
       )!;
       const partCount = db
@@ -417,7 +427,7 @@ export class DatabaseStorage implements IStorage {
       .all() as StoryPart[];
     return rows.map((p) => ({
       ...p,
-      author: stripPassword(db.select().from(users).where(eq(users.id, p.authorId)).get())!,
+      author: toPublicUser(db.select().from(users).where(eq(users.id, p.authorId)).get())!,
     }));
   }
 
@@ -603,7 +613,7 @@ export class DatabaseStorage implements IStorage {
       .all() as Comment[];
     return rows.map((c) => ({
       ...c,
-      author: stripPassword(db.select().from(users).where(eq(users.id, c.authorId)).get())!,
+      author: toPublicUser(db.select().from(users).where(eq(users.id, c.authorId)).get())!,
     }));
   }
 
@@ -687,7 +697,7 @@ export class DatabaseStorage implements IStorage {
       .limit(30)
       .all() as Notification[];
     return rows.map((n) => {
-      const actor = n.actorId ? stripPassword(db.select().from(users).where(eq(users.id, n.actorId)).get()) ?? null : null;
+      const actor = n.actorId ? toPublicUser(db.select().from(users).where(eq(users.id, n.actorId)).get()) ?? null : null;
       const story = n.storyId ? (db.select().from(stories).where(eq(stories.id, n.storyId)).get() as Story | undefined) : undefined;
       return { ...n, actor, storyTitle: story?.title ?? null };
     });
@@ -715,7 +725,7 @@ export class DatabaseStorage implements IStorage {
     const rows = db.select().from(reports).orderBy(desc(reports.createdAt)).all() as Report[];
     return rows.map((r) => ({
       ...r,
-      reporter: stripPassword(db.select().from(users).where(eq(users.id, r.reporterId)).get())!,
+      reporter: toPublicUser(db.select().from(users).where(eq(users.id, r.reporterId)).get())!,
     }));
   }
 
@@ -785,7 +795,7 @@ export class DatabaseStorage implements IStorage {
   // ---------- QUESTS ----------
   private attachQuestRelations(rows: Quest[], viewerId?: number): QuestWithRelations[] {
     return rows.map((q) => {
-      const gm = stripPassword(db.select().from(users).where(eq(users.id, q.gmId)).get())!;
+      const gm = toPublicUser(db.select().from(users).where(eq(users.id, q.gmId)).get())!;
       const participants = db.select().from(questParticipants).where(eq(questParticipants.questId, q.id)).all() as QuestParticipant[];
       const slotsFilled = participants.filter((p) => p.status === "active").length;
       const postCount = db.select().from(questPosts).where(and(eq(questPosts.questId, q.id), eq(questPosts.status, "active"))).all().length;
@@ -794,7 +804,7 @@ export class DatabaseStorage implements IStorage {
         const mine = participants.find((p) => p.userId === viewerId);
         if (mine) {
           const char = db.select().from(characters).where(eq(characters.id, mine.characterId)).get() as Character;
-          myParticipation = { ...mine, user: stripPassword(db.select().from(users).where(eq(users.id, mine.userId)).get())!, character: char };
+          myParticipation = { ...mine, user: toPublicUser(db.select().from(users).where(eq(users.id, mine.userId)).get())!, character: char };
         }
       }
       return { ...q, gm, slotsFilled, postCount, myParticipation };
@@ -856,7 +866,7 @@ export class DatabaseStorage implements IStorage {
   async listParticipants(questId: number): Promise<QuestParticipantWithRelations[]> {
     const rows = db.select().from(questParticipants).where(eq(questParticipants.questId, questId)).orderBy(questParticipants.joinedAt).all() as QuestParticipant[];
     return rows.map((p) => {
-      const user = stripPassword(db.select().from(users).where(eq(users.id, p.userId)).get())!;
+      const user = toPublicUser(db.select().from(users).where(eq(users.id, p.userId)).get())!;
       const character = db.select().from(characters).where(eq(characters.id, p.characterId)).get() as Character;
       return { ...p, user, character };
     });
@@ -905,10 +915,10 @@ export class DatabaseStorage implements IStorage {
       return isGm || p.authorId === viewerId;
     });
     return rows.map((p) => {
-      const author = stripPassword(db.select().from(users).where(eq(users.id, p.authorId)).get())!;
+      const author = toPublicUser(db.select().from(users).where(eq(users.id, p.authorId)).get())!;
       const character = p.characterId ? (db.select().from(characters).where(eq(characters.id, p.characterId)).get() as Character) : null;
       const args = db.select().from(questArguments).where(eq(questArguments.postId, p.id)).orderBy(questArguments.createdAt).all() as QuestArgument[];
-      const argumentsWithAuthor = args.map((a) => ({ ...a, author: stripPassword(db.select().from(users).where(eq(users.id, a.authorId)).get())! }));
+      const argumentsWithAuthor = args.map((a) => ({ ...a, author: toPublicUser(db.select().from(users).where(eq(users.id, a.authorId)).get())! }));
       return { ...p, author, character, arguments: argumentsWithAuthor };
     });
   }
@@ -982,7 +992,7 @@ export class DatabaseStorage implements IStorage {
   // ---------- ARGUMENTS ----------
   async listArgumentsForPost(postId: number): Promise<QuestArgumentWithRelations[]> {
     const rows = db.select().from(questArguments).where(eq(questArguments.postId, postId)).orderBy(questArguments.createdAt).all() as QuestArgument[];
-    return rows.map((a) => ({ ...a, author: stripPassword(db.select().from(users).where(eq(users.id, a.authorId)).get())! }));
+    return rows.map((a) => ({ ...a, author: toPublicUser(db.select().from(users).where(eq(users.id, a.authorId)).get())! }));
   }
 
   async addArgument(postId: number, userId: number, content: string): Promise<QuestArgument> {
@@ -1019,7 +1029,7 @@ export class DatabaseStorage implements IStorage {
       q = q.where(like(forumTopics.title, `%${opts.search}%`));
     }
     const rows = q.orderBy(desc(forumTopics.updatedAt)).limit(limit).offset(offset).all() as ForumTopic[];
-    return rows.map((t) => ({ ...t, author: stripPassword(db.select().from(users).where(eq(users.id, t.authorId)).get())! }));
+    return rows.map((t) => ({ ...t, author: toPublicUser(db.select().from(users).where(eq(users.id, t.authorId)).get())! }));
   }
 
   async countForumTopics(search?: string): Promise<number> {
@@ -1032,7 +1042,7 @@ export class DatabaseStorage implements IStorage {
   async getForumTopic(id: number): Promise<ForumTopicWithRelations | undefined> {
     const t = db.select().from(forumTopics).where(eq(forumTopics.id, id)).get() as ForumTopic | undefined;
     if (!t) return undefined;
-    return { ...t, author: stripPassword(db.select().from(users).where(eq(users.id, t.authorId)).get())! };
+    return { ...t, author: toPublicUser(db.select().from(users).where(eq(users.id, t.authorId)).get())! };
   }
 
   async createForumTopic(userId: number, data: InsertForumTopic): Promise<ForumTopic> {
@@ -1054,7 +1064,7 @@ export class DatabaseStorage implements IStorage {
   // ---------- BOSQUE: FORUM POSTS (threaded) ----------
   async listForumPosts(topicId: number): Promise<ForumPostWithAuthor[]> {
     const rows = db.select().from(forumPosts).where(eq(forumPosts.topicId, topicId)).orderBy(forumPosts.createdAt).all() as ForumPost[];
-    const withAuthor = rows.map((p) => ({ ...p, author: stripPassword(db.select().from(users).where(eq(users.id, p.authorId)).get())!, children: [] as ForumPostWithAuthor[] }));
+    const withAuthor = rows.map((p) => ({ ...p, author: toPublicUser(db.select().from(users).where(eq(users.id, p.authorId)).get())!, children: [] as ForumPostWithAuthor[] }));
     // build a tree via parentId
     const byId = new Map<number, ForumPostWithAuthor>();
     withAuthor.forEach((p) => byId.set(p.id, p));
@@ -1107,7 +1117,7 @@ export class DatabaseStorage implements IStorage {
     const rows = q.orderBy(desc(moderationFlags.createdAt)).all() as ModerationFlag[];
     return rows.map((f) => ({
       ...f,
-      resolver: f.resolvedById ? stripPassword(db.select().from(users).where(eq(users.id, f.resolvedById)).get()) ?? null : null,
+      resolver: f.resolvedById ? toPublicUser(db.select().from(users).where(eq(users.id, f.resolvedById)).get()) ?? null : null,
       snippet: this.getModerationSnippet(f.targetType, f.targetId),
     }));
   }

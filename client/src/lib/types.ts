@@ -3,8 +3,9 @@
 export interface SafeUser {
   id: number;
   username: string;
-  email: string;
-  birthDate: string;
+  // presentes só para a própria conta (auth/me); payloads públicos não os incluem
+  email?: string;
+  birthDate?: string;
   bio: string | null;
   avatarHue: number | null;
   avatarUrl: string | null;

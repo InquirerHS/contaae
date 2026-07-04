@@ -25,6 +25,12 @@ O ContaAê é uma plataforma colaborativa onde pessoas criam, desenvolvem e mode
 ### Restrição de idade
 Não é aceito cadastro de menores de idade, em razão da legislação vigente. A validação ocorre no cadastro (data de nascimento) e a linguagem evita o termo "+18" (que soa inadequado).
 
+### Pseudônimos obrigatórios (sem nomes reais)
+Para proteger a identidade de quem escreve e de terceiros citados em relatos:
+- **Cadastro:** o nome de usuário não pode parecer um nome real. A validação (`looksLikeRealName` em `shared/schema.ts`) bloqueia combinações de primeiro nome + sobrenome comuns no Brasil ("joao_silva", "anaoliveira"), tanto separadas quanto coladas. Primeiro nome sozinho ("pedro_lobo") passa. Usernames aceitam apenas letras, números e `. _ -`.
+- **Conteúdo:** a IA de moderação sinaliza textos que exponham pessoas reais (nome completo, sobretudo junto de endereço/telefone/trabalho = violation; nome completo plausível sem outros dados = borderline). Personagens claramente fictícios e referências culturais não são sinalizados. O fallback heurístico também detecta pares "PrimeiroNome Sobrenome" comuns.
+- **Privacidade da API:** e-mail e data de nascimento só aparecem para a própria conta (`/api/auth/me`, login, registro). Todos os payloads públicos (autores, GMs, comentaristas, perfis) usam a projeção `PublicUser` (sem senha, e-mail e nascimento).
+
 ---
 
 ## 2. Stack técnica

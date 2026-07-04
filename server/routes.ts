@@ -45,9 +45,16 @@ function hashPassword(password: string): string {
 }
 
 function verifyPassword(password: string, stored: string): boolean {
+  // valores fora do formato salt:hash (ex.: a conta interna da IA) nunca autenticam
   const [salt, hash] = stored.split(":");
-  const computed = crypto.scryptSync(password, salt, 64).toString("hex");
-  return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(computed, "hex"));
+  if (!salt || !hash) return false;
+  try {
+    const computed = crypto.scryptSync(password, salt, 64);
+    const expected = Buffer.from(hash, "hex");
+    return expected.length === computed.length && crypto.timingSafeEqual(expected, computed);
+  } catch {
+    return false;
+  }
 }
 
 function issueToken(userId: number): string {
@@ -171,9 +178,9 @@ export async function registerRoutes(
     try {
       const u = await storage.getUserByUsername(req.params.username);
       if (!u) return res.status(404).json({ message: "Usuário não encontrado" });
-      const { password, ...safe } = u;
+      const { password, email, birthDate, ...pub } = u;
       const list = await storage.listStoriesByAuthor(u.id);
-      res.json({ user: safe, stories: list });
+      res.json({ user: pub, stories: list });
     } catch (e) {
       next(e);
     }

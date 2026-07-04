@@ -15,21 +15,24 @@
 // Usa o mesmo provedor híbrido de server/ai.ts (cloud Anthropic ou local Ollama/LM Studio).
 
 import { llmGenerate } from "./ai";
+import { COMMON_FIRST_NAMES, COMMON_SURNAMES } from "@shared/schema";
 import type { ModerationClass, ModerationResult, ModerationTarget } from "@shared/schema";
 
 const SYSTEM_PROMPT = [
   "Você é um moderador de conteúdo de uma plataforma brasileira de histórias colaborativas (ContaAê).",
-  "Analise o texto quanto a duas classes de problema:",
+  "Analise o texto quanto a três classes de problema:",
   "1) Conteúdo ofensivo, odioso, discriminatório, ilegal ou que infrinja a legislação vigente.",
   "2) Propaganda ou promoção partidária — apoio expresso a partido, candidato ou campanha eleitoral.",
+  "3) Exposição de pessoas reais — a plataforma exige pseudônimos e proíbe usar nomes reais. Texto que identifique uma pessoa real (nome completo, especialmente junto de endereço, local de trabalho, telefone ou outro dado pessoal) é violation; um nome completo plausivelmente real sem outros dados, ou ambíguo entre pessoa real e personagem, é borderline.",
   "",
   "Importante:",
   "- Conteúdo ideológico com contexto, história ou reflexão NÃO é violação. Apenas propaganda/promoção direta de partido ou candidato é.",
   "- Terror, suspense e ficção sombria (creepypasta) são permitidos como narrativa.",
   "- Se o trecho for ambíguo ou suspeito de camuflar propaganda partidária, marque como borderline.",
   "- Não seja moralista: narrativa com tensão, conflito ou temas sensíveis é aceitável.",
+  "- Personagens claramente fictícios podem ter nomes comuns (só primeiro nome, figuras históricas ou nomes obviamente inventados não são exposição). Celebridades citadas de passagem como referência cultural também não.",
   "",
-  "Responva APENAS com um JSON válido, sem comentários nem markdown, no formato:",
+  "Responda APENAS com um JSON válido, sem comentários nem markdown, no formato:",
   '{"classification":"ok|borderline|violation","reason":"breve explicação em português"}',
   "Onde classification é 'ok' (sem problema), 'borderline' (zona cinza, precisa de revisão humana) ou 'violation' (infração clara).",
 ].join("\n");
@@ -79,6 +82,15 @@ function heuristicClassify(text: string): ModerationResult {
   const slurs = /bicha|viado|macaco|preto\s+sujo|japa\s+sujo|negão|put(o|a)\s+de\s+merda|retardado|mongol/i;
   if (slurs.test(t)) {
     return { classification: "violation", reason: "Linguagem ofensiva/discriminatória detectada." };
+  }
+  // Pseudônimos obrigatórios: par "PrimeiroNome Sobrenome" comum sugere pessoa real
+  const namePair = /\b([A-ZÀ-Ü][a-zà-ü]+)\s+(?:d[aeo]s?\s+)?([A-ZÀ-Ü][a-zà-ü]+)\b/g;
+  const normalize = (w: string) => w.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  let m: RegExpExecArray | null;
+  while ((m = namePair.exec(text)) !== null) {
+    if (COMMON_FIRST_NAMES.has(normalize(m[1])) && COMMON_SURNAMES.has(normalize(m[2]))) {
+      return { classification: "borderline", reason: `Possível nome de pessoa real ("${m[1]} ${m[2]}") — encaminhado para revisão humana.` };
+    }
   }
   return { classification: "ok", reason: "Sem infração aparente (heurística de fallback)." };
 }

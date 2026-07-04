@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
+import { ZodError } from "zod";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
@@ -72,14 +73,19 @@ app.use((req, res, next) => {
   app.use("/uploads", express.static(uploadsDir));
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    // erros de validação viram 400 com a mensagem legível da primeira issue
+    if (err instanceof ZodError) {
+      return res.status(400).json({ message: err.errors[0]?.message ?? "Dados inválidos" });
+    }
+
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
     console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
 
     return res.status(status).json({ message });
   });

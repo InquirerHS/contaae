@@ -12,13 +12,70 @@ export const users = sqliteTable("users", {
   bio: text("bio").default(""),
   avatarHue: integer("avatar_hue").default(200),
   avatarUrl: text("avatar_url"), // optional uploaded image URL
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// ---------- Proteção de identidade: pseudônimos, não nomes reais ----------
+// Heurística conservadora: só bloqueia quando o nome de usuário combina um
+// primeiro nome comum COM um sobrenome comum (ex.: "joao_silva", "anaoliveira").
+// Um primeiro nome sozinho ("pedro_lobo") ou sobrenome sozinho ("mago_silva") passa.
+export const COMMON_FIRST_NAMES = new Set([
+  "ana", "maria", "jose", "joao", "antonio", "francisco", "carlos", "paulo", "pedro", "lucas",
+  "luiz", "luis", "marcos", "gabriel", "rafael", "daniel", "marcelo", "bruno", "eduardo", "felipe",
+  "rodrigo", "manoel", "mateus", "matheus", "andre", "fernando", "fabio", "leonardo", "gustavo",
+  "guilherme", "leandro", "tiago", "thiago", "vinicius", "alexandre", "ricardo", "diego", "jorge",
+  "sebastiao", "marcio", "geraldo", "adriano", "roberto", "sergio", "claudio", "julio", "cesar",
+  "renato", "vitor", "victor", "raimundo", "juliana", "adriana", "marcia", "fernanda", "patricia",
+  "aline", "sandra", "camila", "amanda", "bruna", "jessica", "leticia", "julia", "luciana",
+  "vanessa", "mariana", "gabriela", "vitoria", "larissa", "claudia", "beatriz", "luana", "rosa",
+  "francisca", "antonia", "raquel", "renata", "carla", "simone", "monica", "tatiane", "debora",
+  "jaqueline", "isabela", "isabel", "sofia", "sophia", "helena", "alice", "laura", "cristiane",
+  "cristina", "daniela", "paula", "carolina", "caroline", "natalia", "bianca", "rita", "tereza",
+]);
+export const COMMON_SURNAMES = new Set([
+  "silva", "santos", "oliveira", "souza", "sousa", "rodrigues", "ferreira", "alves", "pereira",
+  "lima", "gomes", "ribeiro", "carvalho", "almeida", "lopes", "soares", "fernandes", "vieira",
+  "barbosa", "rocha", "dias", "nascimento", "andrade", "moreira", "nunes", "marques", "machado",
+  "mendes", "freitas", "cardoso", "ramos", "goncalves", "santana", "teixeira", "araujo", "costa",
+  "martins", "melo", "castro", "campos", "cavalcante", "cavalcanti", "monteiro", "moura",
+  "correia", "correa", "cunha", "pinto", "farias", "barros", "reis", "medeiros", "azevedo",
+  "miranda", "borges", "batista", "duarte", "tavares", "morais", "moraes", "coelho", "xavier",
+  "aguiar", "magalhaes", "sales", "brito", "guimaraes",
+]);
+
+export function looksLikeRealName(username: string): boolean {
+  const norm = username
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+  const tokens = norm.split(/[^a-z]+/).filter(Boolean);
+  // tokens separados: precisa de um primeiro nome E um sobrenome
+  const hasFirst = tokens.some((t) => COMMON_FIRST_NAMES.has(t));
+  const hasSurname = tokens.some((t) => COMMON_SURNAMES.has(t));
+  if (hasFirst && hasSurname) return true;
+  // forma colada ("anaoliveira"): primeiro nome seguido imediatamente de sobrenome
+  for (const t of tokens) {
+    let glued = false;
+    COMMON_FIRST_NAMES.forEach((first) => {
+      if (t.startsWith(first) && COMMON_SURNAMES.has(t.slice(first.length))) glued = true;
+    });
+    if (glued) return true;
+  }
+  return false;
+}
 
 export const insertUserSchema = createInsertSchema(users)
   .pick({ username: true, email: true, password: true, birthDate: true, bio: true, avatarHue: true })
   .extend({
-    username: z.string().min(3, "Nome de usuário precisa de ao menos 3 caracteres").max(24),
+    username: z
+      .string()
+      .min(3, "Nome de usuário precisa de ao menos 3 caracteres")
+      .max(24)
+      .regex(/^[a-zA-Z0-9._-]+$/, "Use apenas letras, números e . _ - (sem espaços ou acentos)")
+      .refine(
+        (u) => !looksLikeRealName(u),
+        "Para proteger sua identidade, não use seu nome real — escolha um pseudônimo"
+      ),
     email: z.string().email("E-mail inválido"),
     password: z.string().min(6, "Senha precisa de ao menos 6 caracteres"),
     birthDate: z.string().refine((d) => {
@@ -38,8 +95,11 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type LoginUser = z.infer<typeof loginUserSchema>;
 export type User = typeof users.$inferSelect;
 
-// Safe user (no password) returned to the client
+// Safe user (no password) — only for the account owner (auth/me, login, register)
 export type SafeUser = Omit<User, "password">;
+
+// Public user — what everyone else sees (no password, e-mail or birth date)
+export type PublicUser = Omit<User, "password" | "email" | "birthDate">;
 
 // ---------- NOTIFICATIONS ----------
 export const notifications = sqliteTable("notifications", {
@@ -51,7 +111,7 @@ export const notifications = sqliteTable("notifications", {
   partId: integer("part_id"),
   message: text("message").notNull(),
   read: integer("read", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export type Notification = typeof notifications.$inferSelect;
@@ -73,8 +133,8 @@ export const stories = sqliteTable("stories", {
   accentHue: integer("accent_hue").default(190),
   isMature: integer("is_mature", { mode: "boolean" }).default(false),
   aiEnabled: integer("ai_enabled", { mode: "boolean" }).default(true),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
-  updatedAt: text("updated_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertStorySchema = createInsertSchema(stories)
@@ -98,7 +158,7 @@ export const storyParts = sqliteTable("story_parts", {
   content: text("content").notNull(),
   order: integer("order").notNull(),
   isAi: integer("is_ai", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertStoryPartSchema = createInsertSchema(storyParts)
@@ -115,7 +175,7 @@ export const likes = sqliteTable("likes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   storyId: integer("story_id").notNull().references(() => stories.id),
   userId: integer("user_id").notNull().references(() => users.id),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export type Like = typeof likes.$inferSelect;
@@ -126,7 +186,7 @@ export const comments = sqliteTable("comments", {
   storyId: integer("story_id").notNull().references(() => stories.id),
   authorId: integer("author_id").notNull().references(() => users.id),
   content: text("content").notNull(),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertCommentSchema = createInsertSchema(comments)
@@ -151,7 +211,7 @@ export const reports = sqliteTable("reports", {
   targetId: integer("target_id").notNull(),
   reason: text("reason").notNull(),
   status: text("status", { enum: reportStatuses }).notNull().default("open"),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertReportSchema = createInsertSchema(reports)
@@ -171,7 +231,7 @@ export const ratings = sqliteTable("ratings", {
   storyId: integer("story_id").notNull().references(() => stories.id),
   userId: integer("user_id").notNull().references(() => users.id),
   score: integer("score").notNull(), // 1..5
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertRatingSchema = createInsertSchema(ratings)
@@ -190,8 +250,8 @@ export const characters = sqliteTable("characters", {
   userId: integer("user_id").notNull().references(() => users.id),
   name: text("name").notNull(),
   concept: text("concept").notNull(), // como se comporta, personalidade, histórico
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
-  updatedAt: text("updated_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertCharacterSchema = createInsertSchema(characters)
@@ -220,8 +280,8 @@ export const quests = sqliteTable("quests", {
   isMature: integer("is_mature", { mode: "boolean" }).default(false),
   status: text("status", { enum: questStatuses }).notNull().default("open"),
   accentHue: integer("accent_hue").default(190),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
-  updatedAt: text("updated_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertQuestSchema = createInsertSchema(quests)
@@ -249,7 +309,7 @@ export const questParticipants = sqliteTable("quest_participants", {
   characterId: integer("character_id").notNull().references(() => characters.id),
   intro: text("intro").notNull(), // descrição da entrada
   status: text("status", { enum: participantStatuses }).notNull().default("active"),
-  joinedAt: text("joined_at").notNull().default(new Date().toISOString()),
+  joinedAt: text("joined_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertParticipantSchema = createInsertSchema(questParticipants)
@@ -277,7 +337,7 @@ export const questPosts = sqliteTable("quest_posts", {
   removedReason: text("removed_reason"),
   removedById: integer("removed_by_id"),
   replacedById: integer("replaced_by_id"), // revisão aponta para o original
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertQuestPostSchema = createInsertSchema(questPosts)
@@ -301,7 +361,7 @@ export const questArguments = sqliteTable("quest_arguments", {
   content: text("content").notNull(),
   status: text("status", { enum: argumentStatuses }).notNull().default("pending"),
   gmNote: text("gm_note"),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertArgumentSchema = createInsertSchema(questArguments)
@@ -327,8 +387,8 @@ export const forumTopics = sqliteTable("forum_topics", {
   accentHue: integer("accent_hue").default(270),
   status: text("status", { enum: forumTopicStatuses }).notNull().default("open"),
   replyCount: integer("reply_count").notNull().default(0),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
-  updatedAt: text("updated_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertForumTopicSchema = createInsertSchema(forumTopics)
@@ -348,7 +408,7 @@ export const forumPosts = sqliteTable("forum_posts", {
   authorId: integer("author_id").notNull().references(() => users.id),
   parentId: integer("parent_id"), // null = resposta direta ao tópico
   content: text("content").notNull(),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const insertForumPostSchema = createInsertSchema(forumPosts)
@@ -381,7 +441,7 @@ export const moderationFlags = sqliteTable("moderation_flags", {
   status: text("status", { enum: moderationFlagStatuses }).notNull().default("open"),
   resolvedById: integer("resolved_by_id"),
   resolutionNote: text("resolution_note"),
-  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   resolvedAt: text("resolved_at"),
 });
 
