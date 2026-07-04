@@ -1,21 +1,22 @@
-# 🤝 Guia de Contribuição - ContaAê
+# 🤝 Guia de Contribuição — ContaAê
 
-Obrigado pelo interesse em contribuir com o ContaAê! Este documento explica como você pode ajudar.
+Obrigado pelo interesse em contribuir com o ContaAê! Este documento explica como rodar o projeto localmente e como enviar suas mudanças.
+
+> 📖 A referência técnica completa (modelo de dados, todas as rotas da API, regras de negócio e decisões de produto) está em [DOCUMENTACAO.md](DOCUMENTACAO.md). Leia antes de mexer em áreas que você não conhece.
 
 ## 📋 Índice
 
-- [Código de Conduta](#código-de-conduta)
-- [Como Posso Contribuir?](#como-posso-contribuir)
-- [Reportando Bugs](#reportando-bugs)
-- [Sugerindo Melhorias](#sugerindo-melhorias)
-- [Enviando Código](#enviando-código)
-- [Padrões de Código](#padrões-de-código)
+- [Código de Conduta](#-código-de-conduta)
+- [Stack e estrutura](#-stack-e-estrutura)
+- [Rodando localmente](#-rodando-localmente)
+- [Regras da plataforma](#-regras-da-plataforma-não-quebre)
+- [Reportando bugs e sugerindo melhorias](#-reportando-bugs)
+- [Enviando código](#-enviando-código)
+- [Padrões de código](#-padrões-de-código)
 
 ---
 
 ## 📜 Código de Conduta
-
-Este projeto segue um Código de Conduta simples:
 
 - ✅ Seja respeitoso e inclusivo
 - ✅ Aceite críticas construtivas
@@ -25,144 +26,127 @@ Este projeto segue um Código de Conduta simples:
 
 ---
 
-## 🎯 Como Posso Contribuir?
+## 🧱 Stack e estrutura
 
-### 🐛 Reportando Bugs
+| Camada | Tecnologia |
+|---|---|
+| Frontend | React 18 + Vite + TypeScript |
+| Estilo | Tailwind CSS v3 + shadcn/ui |
+| Roteamento | wouter (hash routing) |
+| Estado/servidor | TanStack Query v5 |
+| Backend | Express (Node.js) |
+| Banco | SQLite via Drizzle ORM + better-sqlite3 (síncrono) |
+| IA | Anthropic SDK (cloud) ou endpoint OpenAI-compatível (local) |
 
-Encontrou um problema? Abra uma Issue com:
-
-1. **Título claro** descrevendo o bug
-2. **Passos para reproduzir** o problema
-3. **Comportamento esperado** vs. **comportamento atual**
-4. **Screenshots** se aplicável
-5. **Ambiente** (navegador, dispositivo)
-
-**Template:**
-```markdown
-## Descrição do Bug
-[Descreva o bug de forma clara]
-
-## Passos para Reproduzir
-1. Vá para '...'
-2. Clique em '...'
-3. Role até '...'
-4. Veja o erro
-
-## Comportamento Esperado
-[O que deveria acontecer]
-
-## Screenshots
-[Se aplicável]
-
-## Ambiente
-- Navegador: [ex: Chrome 120]
-- Dispositivo: [ex: iPhone 12, Desktop]
-- Sistema: [ex: Windows 11, iOS 17]
+```
+├── shared/schema.ts     # Modelos Drizzle + schemas Zod (fonte única de verdade)
+├── server/              # Express: rotas, storage, IA, moderação
+├── client/src/          # React: páginas, componentes, hooks, lib
+└── script/              # build.ts, moderador.mjs
 ```
 
-### 💡 Sugerindo Melhorias
+**Regra de ouro:** tipos e validações vivem em `shared/schema.ts` e são importados por client e server. Não duplique schemas.
 
-Tem uma ideia? Abra uma Issue com:
+---
 
-1. **Título claro** da sugestão
-2. **Descrição detalhada** da funcionalidade
-3. **Por que seria útil** para os usuários
-4. **Mockups ou exemplos** se possível
+## 🚀 Rodando localmente
 
-### 💻 Enviando Código
+```bash
+git clone https://github.com/InquirerHS/contaae.git
+cd contaae
+npm install
+cp .env.example .env      # opcional: preencha ANTHROPIC_API_KEY para a IA
+npm run dev               # Express + Vite juntos em http://localhost:5000
+```
 
-1. **Fork** o repositório
-2. **Clone** seu fork:
+Scripts úteis:
+
+| Comando | O que faz |
+|---|---|
+| `npm run dev` | Servidor de desenvolvimento (porta 5000) |
+| `npm run build` | Build de produção (`dist/`) |
+| `npm run check` | Typecheck (`tsc`) |
+| `node seed.mjs` | Popula o banco com contas e histórias de demonstração |
+| `node script/moderador.mjs <username>` | Promove um usuário a moderador (`--remover` rebaixa) |
+
+Notas:
+
+- O banco `data.db` é criado/migrado automaticamente no boot e **não é versionado**.
+- Sem `ANTHROPIC_API_KEY`, o app funciona normalmente: a narração por IA fica indisponível e a moderação usa um fallback heurístico. Para IA local, use `AI_PROVIDER=local` com Ollama/LM Studio (veja `.env.example`).
+- Contas de demonstração do seed: `lyra_neon` / `terno_sombrio` / `mago_arkan` / `cronista_anon` (`@neoarcana.city`, senha `senha123`).
+
+---
+
+## 🛡️ Regras da plataforma (não quebre!)
+
+Algumas invariantes são intencionais e não devem ser removidas em PRs:
+
+1. **Maioridade**: cadastro exige 18+ (validação de `birthDate` no Zod).
+2. **Pseudônimos obrigatórios**: nomes de usuário que pareçam nome real são rejeitados (`looksLikeRealName` em `shared/schema.ts`); a IA de moderação sinaliza conteúdo que exponha pessoas reais.
+3. **Privacidade**: e-mail e data de nascimento só aparecem para a própria conta. Payloads públicos usam a projeção `PublicUser` — nunca devolva o objeto `users` cru numa rota.
+4. **Moderação nunca é automática**: a IA apenas sinaliza (`borderline`/`violation`); ocultar ou remover é sempre decisão humana de um moderador (`is_moderator`).
+5. **Intercalação da IA narradora**: a IA nunca escreve dois trechos seguidos.
+6. **Drizzle síncrono**: queries terminam com `.get()` (1 linha) ou `.all()` (array). Nunca desconstrua o query builder.
+
+---
+
+## 🐛 Reportando Bugs
+
+Abra uma Issue com:
+
+1. **Título claro** descrevendo o bug
+2. **Passos para reproduzir**
+3. **Comportamento esperado** vs. **atual**
+4. **Screenshots** se aplicável
+5. **Ambiente** (navegador, dispositivo, SO)
+
+## 💡 Sugerindo Melhorias
+
+Abra uma Issue com título claro, descrição da funcionalidade, por que seria útil e mockups/exemplos se possível. A seção "Próximos passos sugeridos" da [DOCUMENTACAO.md](DOCUMENTACAO.md) lista ideias já mapeadas.
+
+---
+
+## 💻 Enviando Código
+
+1. **Fork** o repositório e **clone** seu fork
+2. **Crie uma branch**: `git checkout -b feature/minha-feature`
+3. **Faça suas alterações** (client e/ou server)
+4. **Verifique** antes de abrir o PR:
    ```bash
-   git clone https://github.com/seu-usuario/contaae.git
+   npm run check   # não introduza erros de tipo novos
+   npm run dev     # teste o fluxo afetado manualmente
    ```
-3. **Crie uma branch**:
-   ```bash
-   git checkout -b feature/minha-feature
-   ```
-4. **Faça suas alterações**
-5. **Teste** suas alterações
-6. **Commit** com mensagem clara:
-   ```bash
-   git commit -m "feat: adiciona funcionalidade X"
-   ```
-7. **Push** para seu fork:
-   ```bash
-   git push origin feature/minha-feature
-   ```
-8. **Abra um Pull Request**
+5. **Commit** com mensagem clara (veja convenção abaixo) e **push**
+6. **Abra um Pull Request** descrevendo o que mudou e como testou
 
 ---
 
 ## 📝 Padrões de Código
 
-### JavaScript
+### TypeScript / React
 
-```javascript
-// ✅ Bom: funções com nomes descritivos
-function carregarHistoriasRecentes() {
-    // código
-}
+```tsx
+// ✅ Bom: validação compartilhada via Zod em shared/schema.ts
+const data = insertStorySchema.parse(req.body);
 
-// ❌ Ruim: nomes genéricos
-function load() {
-    // código
-}
+// ✅ Bom: TanStack Query para dados do servidor
+const { data: stories } = useQuery<StoryWithRelations[]>({
+  queryKey: ["/api/stories"],
+});
 
-// ✅ Bom: comentários quando necessário
-// Gera ID único baseado em timestamp + random
-function gerarIdUsuario() {
-    return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-}
+// ❌ Ruim: fetch solto com estado manual quando useQuery resolve
+const [stories, setStories] = useState([]);
+useEffect(() => { fetch("/api/stories").then(/* ... */); }, []);
 
-// ✅ Bom: tratamento de erros
-try {
-    await db.collection('historias').add(historia);
-} catch (erro) {
-    console.error('Erro ao publicar:', erro);
-    alert('Erro ao publicar história. Tente novamente.');
-}
+// ✅ Bom: autorização verificada no storage/rota, nunca só no client
+if (!quest || quest.gmId !== gmId) return undefined;
 ```
 
-### CSS
+### Estilo (Tailwind + shadcn/ui)
 
-```css
-/* ✅ Bom: classes descritivas */
-.historia-card {
-    background: white;
-    padding: 20px;
-}
-
-/* ❌ Ruim: classes genéricas */
-.card1 {
-    background: white;
-}
-
-/* ✅ Bom: mobile-first */
-.container {
-    padding: 10px;
-}
-
-@media (min-width: 600px) {
-    .container {
-        padding: 20px;
-    }
-}
-```
-
-### HTML
-
-```html
-<!-- ✅ Bom: semântico e acessível -->
-<button onclick="publicarHistoria()" class="btn-primary">
-    Publicar História
-</button>
-
-<!-- ❌ Ruim: div para tudo -->
-<div onclick="publicarHistoria()" class="btn">
-    Publicar
-</div>
-```
+- Use os componentes de `client/src/components/ui/` antes de criar novos.
+- Cores sempre pelas variáveis do design system (`bg-card`, `text-muted-foreground`...), nunca hex solto — o tema claro/escuro depende disso.
+- Textos da interface em **português brasileiro**, no tom da plataforma.
 
 ### Commits
 
@@ -180,11 +164,9 @@ Usamos [Conventional Commits](https://www.conventionalcommits.org/):
 
 **Exemplos:**
 ```
-feat: adiciona sistema de curtidas
-fix: corrige contador de continuações
-docs: atualiza README com novas instruções
-style: formata código CSS
-refactor: simplifica função de navegação
+feat: adiciona notificações de eventos da Taverna
+fix: corrige contagem de vagas ao remover participante
+docs: atualiza DOCUMENTACAO com novas rotas
 ```
 
 ---
@@ -204,8 +186,7 @@ refactor: simplifica função de navegação
 
 ## ❓ Dúvidas?
 
-- Abra uma Issue com a label `question`
-- Entre em contato pelo Twitter: [@seu_handle](https://twitter.com/seu_handle)
+Abra uma Issue com a label `question`.
 
 ---
 
