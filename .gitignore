@@ -11,6 +11,10 @@ node_modules/
 firebase-config.js
 firebaseConfig.js
 
+# Uploads de usuário — conteúdo gerado em runtime, não versionar
+client/public/uploads/*
+!client/public/uploads/.gitkeep
+
 # Build
 dist/
 build/
