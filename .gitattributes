@@ -1,0 +1,15 @@
+# Protege binários de conversão de fim de linha (ambiente com core.autocrlf=true)
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.db    binary
+*.zip   binary
+*.exe   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
