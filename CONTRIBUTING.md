@@ -52,8 +52,8 @@ Obrigado pelo interesse em contribuir com o ContaAê! Este documento explica com
 ## 🚀 Rodando localmente
 
 ```bash
-git clone https://github.com/InquirerHS/contaae.git
-cd contaae
+git clone https://github.com/InquirerHS/ContaAe.git
+cd ContaAe
 npm install
 cp .env.example .env      # opcional: preencha ANTHROPIC_API_KEY para a IA
 npm run dev               # Express + Vite juntos em http://localhost:5000

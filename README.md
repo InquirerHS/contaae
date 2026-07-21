@@ -35,8 +35,8 @@ React 18 + Vite + TypeScript · Tailwind CSS + shadcn/ui · TanStack Query · Ex
 ## 🚀 Rodando localmente
 
 ```bash
-git clone https://github.com/InquirerHS/contaae.git
-cd contaae
+git clone https://github.com/InquirerHS/ContaAe.git
+cd ContaAe
 npm install
 cp .env.example .env   # opcional: chave da IA
 npm run dev            # http://localhost:5000
